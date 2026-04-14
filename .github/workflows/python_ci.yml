@@ -1,0 +1,29 @@
+name: Python CI
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - main
+
+jobs:
+  python-lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install flake8
+        run: pip install flake8
+
+      - name: Lint scripts with flake8
+        run: flake8 scripts/ --max-line-length=120 --ignore=E501,W503
+
+      - name: Check for syntax errors
+        run: python -m py_compile scripts/ingestion/fetch_football_data.py
