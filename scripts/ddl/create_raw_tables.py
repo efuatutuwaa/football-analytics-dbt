@@ -392,6 +392,7 @@ DDL_STATEMENTS = [
     """,
 ]
 
+
 # ── Main ──────────────────────────────────────────────────
 def create_tables():
     print("🏈 Creating football_raw tables...")
@@ -417,6 +418,7 @@ def create_tables():
                     cursor.execute(statement)
 
     print("🎉 All tables created successfully!")
+
 
 if __name__ == "__main__":
     create_tables()
