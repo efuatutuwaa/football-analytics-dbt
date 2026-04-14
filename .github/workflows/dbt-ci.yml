@@ -28,17 +28,17 @@ jobs:
           DBT_DATABRICKS_TOKEN: ${{ secrets.DBT_DATABRICKS_TOKEN }}
         run: |
           mkdir -p ~/.dbt
-          echo "football_analytics:"                        > ~/.dbt/profiles.yml
-          echo "  target: dev"                             >> ~/.dbt/profiles.yml
-          echo "  outputs:"                                >> ~/.dbt/profiles.yml
-          echo "    dev:"                                  >> ~/.dbt/profiles.yml
-          echo "      type: databricks"                    >> ~/.dbt/profiles.yml
-          echo "      host: $DBT_DATABRICKS_HOST"         >> ~/.dbt/profiles.yml
+          echo "football_analytics:"                          > ~/.dbt/profiles.yml
+          echo "  target: dev"                               >> ~/.dbt/profiles.yml
+          echo "  outputs:"                                  >> ~/.dbt/profiles.yml
+          echo "    dev:"                                    >> ~/.dbt/profiles.yml
+          echo "      type: databricks"                      >> ~/.dbt/profiles.yml
+          echo "      host: $DBT_DATABRICKS_HOST"           >> ~/.dbt/profiles.yml
           echo "      http_path: $DBT_DATABRICKS_HTTP_PATH" >> ~/.dbt/profiles.yml
-          echo "      token: $DBT_DATABRICKS_TOKEN"       >> ~/.dbt/profiles.yml
-          echo "      catalog: workspace"                  >> ~/.dbt/profiles.yml
-          echo "      schema: football_staging"            >> ~/.dbt/profiles.yml
-          echo "      threads: 4"                          >> ~/.dbt/profiles.yml
+          echo "      token: $DBT_DATABRICKS_TOKEN"         >> ~/.dbt/profiles.yml
+          echo "      catalog: workspace"                    >> ~/.dbt/profiles.yml
+          echo "      schema: football_staging"              >> ~/.dbt/profiles.yml
+          echo "      threads: 4"                            >> ~/.dbt/profiles.yml
 
       - name: dbt deps
         run: dbt deps
