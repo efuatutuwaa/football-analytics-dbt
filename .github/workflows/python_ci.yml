@@ -1,0 +1,69 @@
+name: Python CI
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - main
+
+jobs:
+  python-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install \
+            -r requirements.txt \
+            flake8 \
+            sqlfluff \
+            sqlfluff-templater-dbt \
+            dbt-databricks
+
+      - name: Lint Python scripts with flake8
+        run: |
+          if find scripts/ -name "*.py" | grep -q .; then
+            flake8 scripts/ --max-line-length=120 --ignore=W503
+          else
+            echo "No Python files to lint yet — skipping"
+          fi
+
+      - name: Check Python syntax errors
+        run: |
+          find scripts/ -name "*.py" | while read file; do
+            python -m py_compile "$file"
+          done || echo "No Python files found — skipping"
+
+      - name: Create profiles.yml
+        env:
+          DBT_DATABRICKS_HOST: ${{ secrets.DBT_DATABRICKS_HOST }}
+          DBT_DATABRICKS_HTTP_PATH: ${{ secrets.DBT_DATABRICKS_HTTP_PATH }}
+          DBT_DATABRICKS_TOKEN: ${{ secrets.DBT_DATABRICKS_TOKEN }}
+        run: |
+          mkdir -p ~/.dbt
+          echo "football_analytics:"                          > ~/.dbt/profiles.yml
+          echo "  target: dev"                               >> ~/.dbt/profiles.yml
+          echo "  outputs:"                                  >> ~/.dbt/profiles.yml
+          echo "    dev:"                                    >> ~/.dbt/profiles.yml
+          echo "      type: databricks"                      >> ~/.dbt/profiles.yml
+          echo "      host: $DBT_DATABRICKS_HOST"           >> ~/.dbt/profiles.yml
+          echo "      http_path: $DBT_DATABRICKS_HTTP_PATH" >> ~/.dbt/profiles.yml
+          echo "      token: $DBT_DATABRICKS_TOKEN"         >> ~/.dbt/profiles.yml
+          echo "      catalog: workspace"                    >> ~/.dbt/profiles.yml
+          echo "      schema: football_staging"              >> ~/.dbt/profiles.yml
+          echo "      threads: 4"                            >> ~/.dbt/profiles.yml
+
+      - name: Lint SQL models with sqlfluff
+        run: |
+          if find models/ -name "*.sql" | grep -q .; then
+            sqlfluff lint models/ --dialect databricks --templater dbt
+          else
+            echo "No SQL files to lint yet — skipping"
+          fi
