@@ -62,7 +62,7 @@ DDL_STATEMENTS = [
     ) USING DELTA
     """,
 
-    # Teams
+    # Teams — one row per team, no season context
     """
     CREATE TABLE IF NOT EXISTS football_raw.raw_teams (
         team_id INT,
@@ -76,7 +76,17 @@ DDL_STATEMENTS = [
     ) USING DELTA
     """,
 
-    # Venues
+    # Team Seasons — which team played in which league in which season
+    """
+    CREATE TABLE IF NOT EXISTS football_raw.raw_team_seasons (
+        team_id INT,
+        league_id INT,
+        season_year INT,
+        ingested_at TIMESTAMP
+    ) USING DELTA
+    """,
+
+    # Venues — one row per venue, no season context
     """
     CREATE TABLE IF NOT EXISTS football_raw.raw_venues (
         venue_id INT,
@@ -407,17 +417,23 @@ def create_tables():
     ) as connection:
         with connection.cursor() as cursor:
             for statement in DDL_STATEMENTS:
-                if "CREATE TABLE" in statement:
-                    table_name = [
+                if not statement.strip():
+                    continue
+
+                if "CREATE SCHEMA" in statement:
+                    label = "schema: football_raw"
+                elif "CREATE TABLE" in statement:
+                    label = [
                         line.strip()
                         for line in statement.split("\n")
                         if "CREATE TABLE" in line
                     ][0].split(".")[-1].split(" ")[0]
-                    print(f"  Creating {table_name}...")
-                    cursor.execute(statement)
-                    print(f"  ✅ {table_name} created")
                 else:
-                    cursor.execute(statement)
+                    label = "unknown"
+
+                print(f"  Creating {label}...")
+                cursor.execute(statement)
+                print(f"  ✅ {label} created")
 
     print("🎉 All tables created successfully!")
 
