@@ -283,6 +283,17 @@ def main():
         for league_id in LEAGUE_IDS:
             requests_made = 0  # reset per league
 
+            with sql.connect(
+                server_hostname=DATABRICKS_HOST,
+                http_path=DATABRICKS_HTTP_PATH,
+                access_token=DATABRICKS_TOKEN,
+                catalog="workspace"
+            ) as connection:
+                with connection.cursor() as cursor:
+                    if get_last_ingested_at(cursor, ENDPOINT, league_id):
+                        print(f"  League {league_id} already processed — skipping")
+                        continue
+
             print(f"\n  Fetching league {league_id}...")
             response = fetch_from_api(ENDPOINT, params={"id": league_id})
             records = response.get("response", [])
