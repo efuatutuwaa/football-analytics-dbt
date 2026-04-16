@@ -148,8 +148,6 @@ DDL_STATEMENTS = [
         nationality STRING,
         height STRING,
         weight STRING,
-        jersey_number INT,
-        position STRING,
         photo_url STRING,
         ingested_at TIMESTAMP
     ) USING DELTA
@@ -440,3 +438,4 @@ def create_tables():
 
 if __name__ == "__main__":
     create_tables()
+
