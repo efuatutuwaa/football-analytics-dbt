@@ -93,29 +93,44 @@ def flatten_venue(record: dict) -> dict:
     }
 
 
+# ── Flatten team season ───────────────────────────────────
+def flatten_team_season(
+    team_id: int,
+    league_id: int,
+    season: int
+) -> dict:
+    """Flatten team season membership."""
+    return {
+        "team_id": team_id,
+        "league_id": league_id,
+        "season_year": season,
+        "ingested_at": datetime.now(tz=timezone.utc),
+    }
+
+
 # ── Incremental check ─────────────────────────────────────
 def get_last_ingested_at(
     cursor,
     endpoint: str,
-    league_id: int = None
+    entity_id: int = None
 ):
-    """Get the last ingestion timestamp per endpoint and league."""
-    if league_id:
+    """Get the last ingestion timestamp per endpoint and entity."""
+    if entity_id:
         cursor.execute("""
             SELECT last_ingested_at
             FROM football_raw.ingestion_metadata
             WHERE endpoint = ?
             AND entity_id = ?
-            AND status = 'success'
+            AND status IN ('success', 'skipped')
             ORDER BY last_ingested_at DESC
             LIMIT 1
-        """, [endpoint, league_id])
+        """, [endpoint, entity_id])
     else:
         cursor.execute("""
             SELECT last_ingested_at
             FROM football_raw.ingestion_metadata
             WHERE endpoint = ?
-            AND status = 'success'
+            AND status IN ('success', 'skipped')
             ORDER BY last_ingested_at DESC
             LIMIT 1
         """, [endpoint])
@@ -129,7 +144,7 @@ def update_metadata(
     endpoint: str,
     rows_inserted: int,
     status: str,
-    league_id: int = None
+    entity_id: int = None
 ):
     """Update ingestion metadata after each run."""
     cursor.execute("""
@@ -144,7 +159,7 @@ def update_metadata(
         ) VALUES (?, ?, ?, ?, ?, ?, ?)
     """, [
         endpoint,
-        league_id,
+        entity_id,
         datetime.now(tz=timezone.utc),
         rows_inserted,
         requests_made,
@@ -155,9 +170,20 @@ def update_metadata(
 
 # ── Load teams ────────────────────────────────────────────
 def load_teams(cursor, teams: list) -> int:
-    """Load team metadata into football_raw.raw_teams."""
+    """Load unique team metadata into football_raw.raw_teams."""
     rows_inserted = 0
     for record in teams:
+        # check if team already exists
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM football_raw.raw_teams
+            WHERE team_id = ?
+        """, [record["team_id"]])
+        exists = cursor.fetchone()[0] > 0
+
+        if exists:
+            continue
+
         cursor.execute("""
             INSERT INTO football_raw.raw_teams (
                 team_id,
@@ -185,11 +211,23 @@ def load_teams(cursor, teams: list) -> int:
 
 # ── Load venues ───────────────────────────────────────────
 def load_venues(cursor, venues: list) -> int:
-    """Load venue metadata into football_raw.raw_venues."""
+    """Load unique venue metadata into football_raw.raw_venues."""
     rows_inserted = 0
     for record in venues:
         if not record["venue_id"]:
             continue
+
+        # check if venue already exists
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM football_raw.raw_venues
+            WHERE venue_id = ?
+        """, [record["venue_id"]])
+        exists = cursor.fetchone()[0] > 0
+
+        if exists:
+            continue
+
         cursor.execute("""
             INSERT INTO football_raw.raw_venues (
                 venue_id,
@@ -215,14 +253,37 @@ def load_venues(cursor, venues: list) -> int:
     return rows_inserted
 
 
+# ── Load team seasons ─────────────────────────────────────
+def load_team_seasons(cursor, team_seasons: list) -> int:
+    """Load team season membership into football_raw.raw_team_seasons."""
+    rows_inserted = 0
+    for record in team_seasons:
+        cursor.execute("""
+            INSERT INTO football_raw.raw_team_seasons (
+                team_id,
+                league_id,
+                season_year,
+                ingested_at
+            ) VALUES (?, ?, ?, ?)
+        """, [
+            record["team_id"],
+            record["league_id"],
+            record["season_year"],
+            record["ingested_at"],
+        ])
+        rows_inserted += 1
+    return rows_inserted
+
+
 # ── Main loader ───────────────────────────────────────────
 def load_to_databricks(
     league_id: int,
     season: int,
     teams: list,
-    venues: list
+    venues: list,
+    team_seasons: list
 ) -> None:
-    """Load teams and venues into Databricks."""
+    """Load teams, venues and team seasons into Databricks."""
     with sql.connect(
         server_hostname=DATABRICKS_HOST,
         http_path=DATABRICKS_HTTP_PATH,
@@ -231,27 +292,19 @@ def load_to_databricks(
     ) as connection:
         with connection.cursor() as cursor:
 
-            last_ingested_at = get_last_ingested_at(
-                cursor,
-                f"{ENDPOINT}_{season}",
-                league_id
-            )
-
-            if last_ingested_at:
-                print(f"  League {league_id} season {season} "
-                      f"already ingested — skipping")
-                return
-
             team_rows = load_teams(cursor, teams)
-            print(f"  ✅ Loaded {team_rows} teams")
+            print(f"  ✅ Loaded {team_rows} new teams")
 
             venue_rows = load_venues(cursor, venues)
-            print(f"  ✅ Loaded {venue_rows} venues")
+            print(f"  ✅ Loaded {venue_rows} new venues")
+
+            season_rows = load_team_seasons(cursor, team_seasons)
+            print(f"  ✅ Loaded {season_rows} team season records")
 
             update_metadata(
                 cursor,
                 f"{ENDPOINT}_{season}",
-                team_rows + venue_rows,
+                team_rows + venue_rows + season_rows,
                 "success",
                 league_id
             )
@@ -265,8 +318,9 @@ def main():
     try:
         for league_id in LEAGUE_IDS:
             for season in SEASONS:
-                requests_made = 0  # reset per league/season
+                requests_made = 0
 
+                # ── incremental check before API call ──
                 with sql.connect(
                     server_hostname=DATABRICKS_HOST,
                     http_path=DATABRICKS_HTTP_PATH,
@@ -274,19 +328,19 @@ def main():
                     catalog="workspace"
                 ) as connection:
                     with connection.cursor() as cursor:
-                        if get_last_ingested_at(
+                        last_ingested_at = get_last_ingested_at(
                             cursor,
                             f"{ENDPOINT}_{season}",
                             league_id
-                        ):
-                            print(
-                                f"  League {league_id} season {season} "
-                                f"already processed — skipping"
-                            )
-                            continue
+                        )
 
-                print(f"\n  Fetching teams for league {league_id} "
-                      f"season {season}...")
+                if last_ingested_at:
+                    print(f"  League {league_id} season {season} "
+                          f"already ingested — skipping")
+                    continue
+
+                print(f"\n  Fetching teams for league "
+                      f"{league_id} season {season}...")
 
                 response = fetch_from_api(
                     ENDPOINT,
@@ -301,11 +355,24 @@ def main():
 
                 teams = [flatten_team(r) for r in records]
                 venues = [flatten_venue(r) for r in records]
+                team_seasons = [
+                    flatten_team_season(
+                        r.get("team", {}).get("id"),
+                        league_id,
+                        season
+                    )
+                    for r in records
+                ]
 
                 print(f"  Got {len(teams)} teams")
-                print(f"  Got {len(venues)} venues")
 
-                load_to_databricks(league_id, season, teams, venues)
+                load_to_databricks(
+                    league_id,
+                    season,
+                    teams,
+                    venues,
+                    team_seasons
+                )
 
         print("\n🎉 Teams ingestion complete!")
 
