@@ -384,8 +384,10 @@ DDL_STATEMENTS = [
     """
     CREATE TABLE IF NOT EXISTS football_raw.ingestion_metadata (
         endpoint STRING,
+        entity_id INT,
         last_ingested_at TIMESTAMP,
         rows_inserted INT,
+        requests_used INT,
         status STRING,
         created_at TIMESTAMP
     ) USING DELTA

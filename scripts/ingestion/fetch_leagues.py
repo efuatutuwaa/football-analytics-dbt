@@ -113,7 +113,7 @@ def get_last_ingested_at(
             SELECT last_ingested_at
             FROM football_raw.ingestion_metadata
             WHERE endpoint = ?
-            AND league_id = ?
+            AND entity_id = ?
             AND status = 'success'
             ORDER BY last_ingested_at DESC
             LIMIT 1
@@ -143,7 +143,7 @@ def update_metadata(
     cursor.execute("""
         INSERT INTO football_raw.ingestion_metadata (
             endpoint,
-            league_id,
+            entity_id,
             last_ingested_at,
             rows_inserted,
             requests_used,
