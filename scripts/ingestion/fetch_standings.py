@@ -14,7 +14,7 @@ if not API_KEY:
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
-ENDPOINT = "teams"
+ENDPOINT = "standings"
 
 LEAGUE_IDS = [39, 2, 1, 4, 15, 140, 78, 61, 135]
 SEASONS = [2020, 2021, 2022, 2023, 2024, 2025]
@@ -38,41 +38,49 @@ def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
     return response.json()
 
 
-def flatten_team(record: dict) -> dict:
+def flatten_standing(
+    league_id: int, league_name: str,
+    season: int, record: dict
+) -> dict:
     team = record.get("team", {})
+    all_stats = record.get("all", {})
+    home_stats = record.get("home", {})
+    away_stats = record.get("away", {})
+    all_goals = all_stats.get("goals", {})
+    home_goals = home_stats.get("goals", {})
+    away_goals = away_stats.get("goals", {})
     return {
+        "league_id": league_id,
+        "league_name": league_name,
+        "league_season": season,
         "team_id": team.get("id"),
         "team_name": team.get("name"),
-        "team_code": team.get("code"),
-        "team_country": team.get("country"),
-        "founded_year": team.get("founded"),
-        "is_national_team": team.get("national"),
-        "team_logo_url": team.get("logo"),
-        "ingested_at": datetime.now(tz=timezone.utc),
-    }
-
-
-def flatten_venue(record: dict) -> dict:
-    venue = record.get("venue", {})
-    return {
-        "venue_id": venue.get("id"),
-        "venue_name": venue.get("name"),
-        "venue_address": venue.get("address"),
-        "venue_city": venue.get("city"),
-        "venue_capacity": venue.get("capacity"),
-        "venue_surface": venue.get("surface"),
-        "venue_image_url": venue.get("image"),
-        "ingested_at": datetime.now(tz=timezone.utc),
-    }
-
-
-def flatten_team_season(
-    team_id: int, league_id: int, season: int
-) -> dict:
-    return {
-        "team_id": team_id,
-        "league_id": league_id,
-        "season_year": season,
+        "rank": record.get("rank"),
+        "points": record.get("points"),
+        "goals_diff": record.get("goalsDiff"),
+        "group_name": record.get("group"),
+        "form": record.get("form"),
+        "status": record.get("status"),
+        "description": record.get("description"),
+        "all_played": all_stats.get("played"),
+        "all_wins": all_stats.get("win"),
+        "all_draws": all_stats.get("draw"),
+        "all_losses": all_stats.get("lose"),
+        "all_goals_for": all_goals.get("for"),
+        "all_goals_against": all_goals.get("against"),
+        "home_played": home_stats.get("played"),
+        "home_wins": home_stats.get("win"),
+        "home_draws": home_stats.get("draw"),
+        "home_losses": home_stats.get("lose"),
+        "home_goals_for": home_goals.get("for"),
+        "home_goals_against": home_goals.get("against"),
+        "away_played": away_stats.get("played"),
+        "away_wins": away_stats.get("win"),
+        "away_draws": away_stats.get("draw"),
+        "away_losses": away_stats.get("lose"),
+        "away_goals_for": away_goals.get("for"),
+        "away_goals_against": away_goals.get("against"),
+        "last_updated": record.get("update"),
         "ingested_at": datetime.now(tz=timezone.utc),
     }
 
@@ -119,74 +127,32 @@ def update_metadata(
     """)
 
 
-def load_teams(teams: list) -> int:
-    if not teams:
-        return 0
-    existing_ids = {
-        row[0] for row in spark.sql("""
-            SELECT team_id FROM workspace.football_raw.raw_teams
-        """).collect()
-    }
-    new_teams = [
-        t for t in teams
-        if t["team_id"] and t["team_id"] not in existing_ids
-    ]
-    if not new_teams:
-        return 0
-    df = spark.createDataFrame(new_teams)
-    df.write.mode("append").saveAsTable(
-        "workspace.football_raw.raw_teams"
-    )
-    return len(new_teams)
-
-
-def load_venues(venues: list) -> int:
-    if not venues:
-        return 0
-    existing_ids = {
-        row[0] for row in spark.sql("""
-            SELECT venue_id FROM workspace.football_raw.raw_venues
-        """).collect()
-    }
-    new_venues = [
-        v for v in venues
-        if v["venue_id"] and v["venue_id"] not in existing_ids
-    ]
-    if not new_venues:
-        return 0
-    df = spark.createDataFrame(new_venues)
-    df.write.mode("append").saveAsTable(
-        "workspace.football_raw.raw_venues"
-    )
-    return len(new_venues)
-
-
-def load_team_seasons(team_seasons: list) -> int:
-    if not team_seasons:
+def load_standings(standings: list) -> int:
+    if not standings:
         return 0
     existing_combos = {
-        (row[0], row[1], row[2]) for row in spark.sql("""
-            SELECT team_id, league_id, season_year
-            FROM workspace.football_raw.raw_team_seasons
+        (row[0], row[1]) for row in spark.sql("""
+            SELECT league_id, league_season
+            FROM workspace.football_raw.raw_standings
         """).collect()
     }
-    new_seasons = [
-        s for s in team_seasons
-        if (s["team_id"], s["league_id"], s["season_year"])
+    new_standings = [
+        s for s in standings
+        if (s["league_id"], s["league_season"])
         not in existing_combos
     ]
-    if not new_seasons:
+    if not new_standings:
         return 0
-    df = spark.createDataFrame(new_seasons)
+    df = spark.createDataFrame(new_standings)
     df.write.mode("append").saveAsTable(
-        "workspace.football_raw.raw_team_seasons"
+        "workspace.football_raw.raw_standings"
     )
-    return len(new_seasons)
+    return len(new_standings)
 
 
 def main():
     global requests_made
-    print("⚽ Fetching teams...")
+    print("🏆 Fetching standings...")
     try:
         for league_id in LEAGUE_IDS:
             for season in SEASONS:
@@ -198,7 +164,7 @@ def main():
                     print(f"  League {league_id} season {season} "
                           f"already ingested — skipping")
                     continue
-                print(f"\n  Fetching teams for league "
+                print(f"\n  Fetching standings for league "
                       f"{league_id} season {season}...")
                 response = fetch_from_api(
                     ENDPOINT,
@@ -206,28 +172,27 @@ def main():
                 )
                 records = response.get("response", [])
                 if not records:
-                    print(f"  No teams found — skipping")
+                    print(f"  No standings found — skipping")
                     continue
-                teams = [flatten_team(r) for r in records]
-                venues = [flatten_venue(r) for r in records]
-                team_seasons = [
-                    flatten_team_season(
-                        r.get("team", {}).get("id"), league_id, season
-                    )
-                    for r in records
-                ]
-                team_rows = load_teams(teams)
-                venue_rows = load_venues(venues)
-                season_rows = load_team_seasons(team_seasons)
-                print(f"  ✅ Loaded {team_rows} new teams")
-                print(f"  ✅ Loaded {venue_rows} new venues")
-                print(f"  ✅ Loaded {season_rows} team season records")
+                all_standings = []
+                for record in records:
+                    league = record.get("league", {})
+                    league_name = league.get("name")
+                    for group in league.get("standings", []):
+                        for standing in group:
+                            all_standings.append(
+                                flatten_standing(
+                                    league_id, league_name,
+                                    season, standing
+                                )
+                            )
+                standing_rows = load_standings(all_standings)
+                print(f"  ✅ Loaded {standing_rows} standings")
                 update_metadata(
                     f"{ENDPOINT}_{season}",
-                    team_rows + venue_rows + season_rows,
-                    "success", league_id
+                    standing_rows, "success", league_id
                 )
-        print("\n🎉 Teams ingestion complete!")
+        print("\n🎉 Standings ingestion complete!")
     except Exception as e:
         print(f"❌ Error: {e}")
         raise

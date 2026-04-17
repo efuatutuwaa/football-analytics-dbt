@@ -14,7 +14,7 @@ if not API_KEY:
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
-ENDPOINT = "teams"
+ENDPOINT = "fixtures"
 
 LEAGUE_IDS = [39, 2, 1, 4, 15, 140, 78, 61, 135]
 SEASONS = [2020, 2021, 2022, 2023, 2024, 2025]
@@ -38,41 +38,61 @@ def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
     return response.json()
 
 
-def flatten_team(record: dict) -> dict:
-    team = record.get("team", {})
+def flatten_fixture(record: dict) -> dict:
+    fixture = record.get("fixture", {})
+    periods = fixture.get("periods", {})
+    venue = fixture.get("venue", {})
+    status = fixture.get("status", {})
+    league = record.get("league", {})
+    teams = record.get("teams", {})
+    home = teams.get("home", {})
+    away = teams.get("away", {})
     return {
-        "team_id": team.get("id"),
-        "team_name": team.get("name"),
-        "team_code": team.get("code"),
-        "team_country": team.get("country"),
-        "founded_year": team.get("founded"),
-        "is_national_team": team.get("national"),
-        "team_logo_url": team.get("logo"),
-        "ingested_at": datetime.now(tz=timezone.utc),
-    }
-
-
-def flatten_venue(record: dict) -> dict:
-    venue = record.get("venue", {})
-    return {
+        "fixture_id": fixture.get("id"),
+        "referee": fixture.get("referee"),
+        "timezone": fixture.get("timezone"),
+        "match_date": fixture.get("date"),
+        "match_timestamp": fixture.get("timestamp"),
+        "first_period_start": periods.get("first"),
+        "second_period_start": periods.get("second"),
         "venue_id": venue.get("id"),
         "venue_name": venue.get("name"),
-        "venue_address": venue.get("address"),
         "venue_city": venue.get("city"),
-        "venue_capacity": venue.get("capacity"),
-        "venue_surface": venue.get("surface"),
-        "venue_image_url": venue.get("image"),
+        "status_long": status.get("long"),
+        "status_short": status.get("short"),
+        "elapsed_minutes": status.get("elapsed"),
+        "extra_time": status.get("extra"),
+        "league_id": league.get("id"),
+        "league_name": league.get("name"),
+        "league_country": league.get("country"),
+        "league_season": league.get("season"),
+        "league_round": league.get("round"),
+        "home_team_id": home.get("id"),
+        "home_team_name": home.get("name"),
+        "home_team_winner": home.get("winner"),
+        "away_team_id": away.get("id"),
+        "away_team_name": away.get("name"),
+        "away_team_winner": away.get("winner"),
         "ingested_at": datetime.now(tz=timezone.utc),
     }
 
 
-def flatten_team_season(
-    team_id: int, league_id: int, season: int
-) -> dict:
+def flatten_fixture_score(fixture_id: int, record: dict) -> dict:
+    score = record.get("score", {})
+    halftime = score.get("halftime", {})
+    fulltime = score.get("fulltime", {})
+    extratime = score.get("extratime", {})
+    penalty = score.get("penalty", {})
     return {
-        "team_id": team_id,
-        "league_id": league_id,
-        "season_year": season,
+        "fixture_id": fixture_id,
+        "halftime_home": halftime.get("home"),
+        "halftime_away": halftime.get("away"),
+        "fulltime_home": fulltime.get("home"),
+        "fulltime_away": fulltime.get("away"),
+        "extratime_home": extratime.get("home"),
+        "extratime_away": extratime.get("away"),
+        "penalty_home": penalty.get("home"),
+        "penalty_away": penalty.get("away"),
         "ingested_at": datetime.now(tz=timezone.utc),
     }
 
@@ -119,74 +139,53 @@ def update_metadata(
     """)
 
 
-def load_teams(teams: list) -> int:
-    if not teams:
+def load_fixtures(fixtures: list) -> int:
+    if not fixtures:
         return 0
     existing_ids = {
         row[0] for row in spark.sql("""
-            SELECT team_id FROM workspace.football_raw.raw_teams
+            SELECT fixture_id
+            FROM workspace.football_raw.raw_fixtures
         """).collect()
     }
-    new_teams = [
-        t for t in teams
-        if t["team_id"] and t["team_id"] not in existing_ids
+    new_fixtures = [
+        f for f in fixtures
+        if f["fixture_id"] and f["fixture_id"] not in existing_ids
     ]
-    if not new_teams:
+    if not new_fixtures:
         return 0
-    df = spark.createDataFrame(new_teams)
+    df = spark.createDataFrame(new_fixtures)
     df.write.mode("append").saveAsTable(
-        "workspace.football_raw.raw_teams"
+        "workspace.football_raw.raw_fixtures"
     )
-    return len(new_teams)
+    return len(new_fixtures)
 
 
-def load_venues(venues: list) -> int:
-    if not venues:
+def load_fixture_scores(scores: list) -> int:
+    if not scores:
         return 0
     existing_ids = {
         row[0] for row in spark.sql("""
-            SELECT venue_id FROM workspace.football_raw.raw_venues
+            SELECT fixture_id
+            FROM workspace.football_raw.raw_fixture_scores
         """).collect()
     }
-    new_venues = [
-        v for v in venues
-        if v["venue_id"] and v["venue_id"] not in existing_ids
+    new_scores = [
+        s for s in scores
+        if s["fixture_id"] and s["fixture_id"] not in existing_ids
     ]
-    if not new_venues:
+    if not new_scores:
         return 0
-    df = spark.createDataFrame(new_venues)
+    df = spark.createDataFrame(new_scores)
     df.write.mode("append").saveAsTable(
-        "workspace.football_raw.raw_venues"
+        "workspace.football_raw.raw_fixture_scores"
     )
-    return len(new_venues)
-
-
-def load_team_seasons(team_seasons: list) -> int:
-    if not team_seasons:
-        return 0
-    existing_combos = {
-        (row[0], row[1], row[2]) for row in spark.sql("""
-            SELECT team_id, league_id, season_year
-            FROM workspace.football_raw.raw_team_seasons
-        """).collect()
-    }
-    new_seasons = [
-        s for s in team_seasons
-        if (s["team_id"], s["league_id"], s["season_year"])
-        not in existing_combos
-    ]
-    if not new_seasons:
-        return 0
-    df = spark.createDataFrame(new_seasons)
-    df.write.mode("append").saveAsTable(
-        "workspace.football_raw.raw_team_seasons"
-    )
-    return len(new_seasons)
+    return len(new_scores)
 
 
 def main():
     global requests_made
-    print("⚽ Fetching teams...")
+    print("🏟️ Fetching fixtures...")
     try:
         for league_id in LEAGUE_IDS:
             for season in SEASONS:
@@ -198,7 +197,7 @@ def main():
                     print(f"  League {league_id} season {season} "
                           f"already ingested — skipping")
                     continue
-                print(f"\n  Fetching teams for league "
+                print(f"\n  Fetching fixtures for league "
                       f"{league_id} season {season}...")
                 response = fetch_from_api(
                     ENDPOINT,
@@ -206,28 +205,25 @@ def main():
                 )
                 records = response.get("response", [])
                 if not records:
-                    print(f"  No teams found — skipping")
+                    print(f"  No fixtures found — skipping")
                     continue
-                teams = [flatten_team(r) for r in records]
-                venues = [flatten_venue(r) for r in records]
-                team_seasons = [
-                    flatten_team_season(
-                        r.get("team", {}).get("id"), league_id, season
+                fixtures = [flatten_fixture(r) for r in records]
+                scores = [
+                    flatten_fixture_score(
+                        r.get("fixture", {}).get("id"), r
                     )
                     for r in records
                 ]
-                team_rows = load_teams(teams)
-                venue_rows = load_venues(venues)
-                season_rows = load_team_seasons(team_seasons)
-                print(f"  ✅ Loaded {team_rows} new teams")
-                print(f"  ✅ Loaded {venue_rows} new venues")
-                print(f"  ✅ Loaded {season_rows} team season records")
+                fixture_rows = load_fixtures(fixtures)
+                score_rows = load_fixture_scores(scores)
+                print(f"  ✅ Loaded {fixture_rows} fixtures")
+                print(f"  ✅ Loaded {score_rows} scores")
                 update_metadata(
                     f"{ENDPOINT}_{season}",
-                    team_rows + venue_rows + season_rows,
+                    fixture_rows + score_rows,
                     "success", league_id
                 )
-        print("\n🎉 Teams ingestion complete!")
+        print("\n🎉 Fixtures ingestion complete!")
     except Exception as e:
         print(f"❌ Error: {e}")
         raise
