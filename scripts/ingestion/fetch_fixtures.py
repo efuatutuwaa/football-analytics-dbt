@@ -10,7 +10,7 @@ HEADERS = {"x-apisports-key": API_KEY}
 ENDPOINT = "fixtures"
 
 LEAGUE_IDS = [39, 2, 1, 4, 15, 140, 78, 61, 135]
-SEASONS = [2020, 2021, 2022, 2023, 2024, 2025]
+SEASONS = list(range(2020, datetime.now().year + 1))
 
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
