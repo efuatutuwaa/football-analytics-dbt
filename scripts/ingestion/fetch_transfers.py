@@ -1,9 +1,9 @@
 import time
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from pyspark.sql import SparkSession
 from config import API_FOOTBALL_KEY as API_KEY
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType, DateType
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
@@ -15,13 +15,13 @@ requests_made = 0
 TRANSFER_SCHEMA = StructType([
     StructField("player_id", IntegerType(), True),
     StructField("player_name", StringType(), True),
-    StructField("transfer_date", StringType(), True),
+    StructField("transfer_date", DateType(), True),
     StructField("transfer_type", StringType(), True),
     StructField("team_in_id", IntegerType(), True),
     StructField("team_in_name", StringType(), True),
     StructField("team_out_id", IntegerType(), True),
     StructField("team_out_name", StringType(), True),
-    StructField("last_updated", StringType(), True),
+    StructField("last_updated", TimestampType(), True),
     StructField("ingested_at", TimestampType(), True),
 ])
 
@@ -50,6 +50,24 @@ def get_player_ids() -> list:
     return [row[0] for row in result]
 
 
+def _parse_date(val: str):
+    if not val:
+        return None
+    try:
+        return date.fromisoformat(val)
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_ts(val: str):
+    if not val:
+        return None
+    try:
+        return datetime.fromisoformat(val)
+    except (ValueError, TypeError):
+        return None
+
+
 def flatten_transfer(
     player_id: int, player_name: str,
     last_updated: str, transfer: dict
@@ -60,13 +78,13 @@ def flatten_transfer(
     return {
         "player_id": player_id,
         "player_name": player_name,
-        "transfer_date": transfer.get("date"),
+        "transfer_date": _parse_date(transfer.get("date")),
         "transfer_type": transfer.get("type"),
         "team_in_id": team_in.get("id"),
         "team_in_name": team_in.get("name"),
         "team_out_id": team_out.get("id"),
         "team_out_name": team_out.get("name"),
-        "last_updated": last_updated,
+        "last_updated": _parse_ts(last_updated),
         "ingested_at": datetime.now(tz=timezone.utc),
     }
 

@@ -1,9 +1,9 @@
 import time
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from pyspark.sql import SparkSession
 from config import API_FOOTBALL_KEY as API_KEY
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType, DateType
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
@@ -21,7 +21,7 @@ PLAYER_SCHEMA = StructType([
     StructField("firstname", StringType(), True),
     StructField("lastname", StringType(), True),
     StructField("age", IntegerType(), True),
-    StructField("birth_date", StringType(), True),
+    StructField("birth_date", DateType(), True),
     StructField("birth_place", StringType(), True),
     StructField("birth_country", StringType(), True),
     StructField("nationality", StringType(), True),
@@ -70,6 +70,15 @@ def fetch_all_pages(league_id: int, season: int) -> list:
     return all_records
 
 
+def _parse_date(val: str):
+    if not val:
+        return None
+    try:
+        return date.fromisoformat(val)
+    except (ValueError, TypeError):
+        return None
+
+
 def flatten_player(record: dict) -> dict:
     player = record.get("player", {})
     birth = player.get("birth", {})
@@ -79,7 +88,7 @@ def flatten_player(record: dict) -> dict:
         "firstname": player.get("firstname"),
         "lastname": player.get("lastname"),
         "age": player.get("age"),
-        "birth_date": birth.get("date"),
+        "birth_date": _parse_date(birth.get("date")),
         "birth_place": birth.get("place"),
         "birth_country": birth.get("country"),
         "nationality": player.get("nationality"),

@@ -1,6 +1,6 @@
 import time
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from pyspark.sql import SparkSession
 from config import API_FOOTBALL_KEY as API_KEY
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, LongType, TimestampType, BooleanType
@@ -19,7 +19,7 @@ FIXTURE_SCHEMA = StructType([
     StructField("fixture_id", IntegerType(), True),
     StructField("referee", StringType(), True),
     StructField("timezone", StringType(), True),
-    StructField("match_date", StringType(), True),
+    StructField("match_date", TimestampType(), True),
     StructField("match_timestamp", LongType(), True),
     StructField("first_period_start", LongType(), True),
     StructField("second_period_start", LongType(), True),
@@ -73,6 +73,15 @@ def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
     return response.json()
 
 
+def _parse_ts(val: str):
+    if not val:
+        return None
+    try:
+        return datetime.fromisoformat(val)
+    except (ValueError, TypeError):
+        return None
+
+
 def flatten_fixture(record: dict) -> dict:
     fixture = record.get("fixture", {})
     periods = fixture.get("periods", {})
@@ -86,7 +95,7 @@ def flatten_fixture(record: dict) -> dict:
         "fixture_id": fixture.get("id"),
         "referee": fixture.get("referee"),
         "timezone": fixture.get("timezone"),
-        "match_date": fixture.get("date"),
+        "match_date": _parse_ts(fixture.get("date")),
         "match_timestamp": fixture.get("timestamp"),
         "first_period_start": periods.get("first"),
         "second_period_start": periods.get("second"),
