@@ -3,6 +3,7 @@ import requests
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from config import API_FOOTBALL_KEY as API_KEY
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
@@ -10,6 +11,22 @@ ENDPOINT = "fixtures/events"
 
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
+
+EVENT_SCHEMA = StructType([
+    StructField("fixture_id", IntegerType(), True),
+    StructField("elapsed_minutes", IntegerType(), True),
+    StructField("extra_minutes", IntegerType(), True),
+    StructField("team_id", IntegerType(), True),
+    StructField("team_name", StringType(), True),
+    StructField("player_id", IntegerType(), True),
+    StructField("player_name", StringType(), True),
+    StructField("assist_player_id", IntegerType(), True),
+    StructField("assist_player_name", StringType(), True),
+    StructField("event_type", StringType(), True),
+    StructField("event_detail", StringType(), True),
+    StructField("comments", StringType(), True),
+    StructField("ingested_at", TimestampType(), True),
+])
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
@@ -118,7 +135,7 @@ def load_fixture_events(events: list) -> int:
     ]
     if not new_events:
         return 0
-    df = spark.createDataFrame(new_events)
+    df = spark.createDataFrame(new_events, schema=EVENT_SCHEMA)
     df.write.mode("append").saveAsTable(
         "workspace.football_raw.raw_fixture_events"
     )

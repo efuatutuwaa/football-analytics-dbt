@@ -3,6 +3,7 @@ import requests
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from config import API_FOOTBALL_KEY as API_KEY
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType, BooleanType
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
@@ -10,6 +11,48 @@ ENDPOINT = "fixtures/players"
 
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
+
+PLAYER_STATS_SCHEMA = StructType([
+    StructField("fixture_id", IntegerType(), True),
+    StructField("team_id", IntegerType(), True),
+    StructField("team_name", StringType(), True),
+    StructField("player_id", IntegerType(), True),
+    StructField("player_name", StringType(), True),
+    StructField("minutes_played", IntegerType(), True),
+    StructField("jersey_number", IntegerType(), True),
+    StructField("position", StringType(), True),
+    StructField("rating", StringType(), True),
+    StructField("is_captain", BooleanType(), True),
+    StructField("is_substitute", BooleanType(), True),
+    StructField("offsides", IntegerType(), True),
+    StructField("shots_total", IntegerType(), True),
+    StructField("shots_on_target", IntegerType(), True),
+    StructField("goals_scored", IntegerType(), True),
+    StructField("goals_conceded", IntegerType(), True),
+    StructField("assists", IntegerType(), True),
+    StructField("saves", IntegerType(), True),
+    StructField("passes_total", IntegerType(), True),
+    StructField("passes_key", IntegerType(), True),
+    StructField("pass_accuracy", StringType(), True),
+    StructField("tackles_total", IntegerType(), True),
+    StructField("blocks", IntegerType(), True),
+    StructField("interceptions", IntegerType(), True),
+    StructField("duels_total", IntegerType(), True),
+    StructField("duels_won", IntegerType(), True),
+    StructField("dribbles_attempted", IntegerType(), True),
+    StructField("dribbles_success", IntegerType(), True),
+    StructField("dribbles_past", IntegerType(), True),
+    StructField("fouls_drawn", IntegerType(), True),
+    StructField("fouls_committed", IntegerType(), True),
+    StructField("yellow_cards", IntegerType(), True),
+    StructField("red_cards", IntegerType(), True),
+    StructField("penalty_won", IntegerType(), True),
+    StructField("penalty_committed", IntegerType(), True),
+    StructField("penalty_scored", IntegerType(), True),
+    StructField("penalty_missed", IntegerType(), True),
+    StructField("penalty_saved", IntegerType(), True),
+    StructField("ingested_at", TimestampType(), True),
+])
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
@@ -153,7 +196,7 @@ def load_player_statistics(stats: list) -> int:
     ]
     if not new_stats:
         return 0
-    df = spark.createDataFrame(new_stats)
+    df = spark.createDataFrame(new_stats, schema=PLAYER_STATS_SCHEMA)
     df.write.mode("append").saveAsTable(
         "workspace.football_raw.raw_player_statistics"
     )
