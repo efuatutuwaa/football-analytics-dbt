@@ -1,5 +1,6 @@
 requests
 python-dotenv
-databricks-sql-connector
-pandas
 pyspark
+sqlfluff
+sqlfluff-templater-dbt
+dbt-databricks
