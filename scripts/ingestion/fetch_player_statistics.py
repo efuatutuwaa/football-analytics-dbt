@@ -1,0 +1,241 @@
+import os
+import time
+import requests
+from datetime import datetime, timezone
+from dotenv import load_dotenv
+from pyspark.sql import SparkSession
+
+load_dotenv()
+
+API_KEY = os.getenv("API_FOOTBALL_KEY")
+
+if not API_KEY:
+    raise ValueError("Missing API_FOOTBALL_KEY — check your .env file")
+
+API_BASE_URL = "https://v3.football.api-sports.io"
+HEADERS = {"x-apisports-key": API_KEY}
+ENDPOINT = "fixtures/players"
+
+spark = SparkSession.builder.getOrCreate()
+requests_made = 0
+
+
+def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
+    global requests_made
+    url = f"{API_BASE_URL}/{endpoint}"
+    response = requests.get(url, headers=HEADERS, params=params)
+    response.raise_for_status()
+    requests_made += 1
+    remaining = response.headers.get("x-ratelimit-requests-remaining")
+    limit = response.headers.get("x-ratelimit-requests-limit")
+    print(f"  API requests remaining: {remaining}/{limit}")
+    if remaining and int(remaining) < 100:
+        raise Exception("⚠️ API request limit almost reached — stopping!")
+    time.sleep(0.5)
+    return response.json()
+
+
+def get_fixture_ids(league_id: int, season: int) -> list:
+    result = spark.sql(f"""
+        SELECT DISTINCT fixture_id
+        FROM workspace.football_raw.raw_fixtures
+        WHERE league_id = {league_id}
+        AND league_season = {season}
+        AND status_short = 'FT'
+        ORDER BY fixture_id
+    """).collect()
+    return [row[0] for row in result]
+
+
+def flatten_player_statistics(
+    fixture_id: int, team_id: int,
+    team_name: str, player: dict, stats: dict
+) -> dict:
+    games = stats.get("games", {})
+    shots = stats.get("shots", {})
+    goals = stats.get("goals", {})
+    passes = stats.get("passes", {})
+    tackles = stats.get("tackles", {})
+    duels = stats.get("duels", {})
+    dribbles = stats.get("dribbles", {})
+    fouls = stats.get("fouls", {})
+    cards = stats.get("cards", {})
+    penalty = stats.get("penalty", {})
+    return {
+        "fixture_id": fixture_id,
+        "team_id": team_id,
+        "team_name": team_name,
+        "player_id": player.get("id"),
+        "player_name": player.get("name"),
+        "minutes_played": games.get("minutes"),
+        "jersey_number": games.get("number"),
+        "position": games.get("position"),
+        "rating": str(games.get("rating")) if games.get("rating") else None,
+        "is_captain": games.get("captain"),
+        "is_substitute": games.get("substitute"),
+        "offsides": stats.get("offsides"),
+        "shots_total": shots.get("total"),
+        "shots_on_target": shots.get("on"),
+        "goals_scored": goals.get("total"),
+        "goals_conceded": goals.get("conceded"),
+        "assists": goals.get("assists"),
+        "saves": goals.get("saves"),
+        "passes_total": passes.get("total"),
+        "passes_key": passes.get("key"),
+        "pass_accuracy": str(passes.get("accuracy")) if passes.get("accuracy") else None,
+        "tackles_total": tackles.get("total"),
+        "blocks": tackles.get("blocks"),
+        "interceptions": tackles.get("interceptions"),
+        "duels_total": duels.get("total"),
+        "duels_won": duels.get("won"),
+        "dribbles_attempted": dribbles.get("attempts"),
+        "dribbles_success": dribbles.get("success"),
+        "dribbles_past": dribbles.get("past"),
+        "fouls_drawn": fouls.get("drawn"),
+        "fouls_committed": fouls.get("committed"),
+        "yellow_cards": cards.get("yellow"),
+        "red_cards": cards.get("red"),
+        "penalty_won": penalty.get("won"),
+        "penalty_committed": penalty.get("commited"),
+        "penalty_scored": penalty.get("scored"),
+        "penalty_missed": penalty.get("missed"),
+        "penalty_saved": penalty.get("saved"),
+        "ingested_at": datetime.now(tz=timezone.utc),
+    }
+
+
+def get_last_ingested_at(endpoint: str, entity_id: int = None):
+    try:
+        if entity_id:
+            result = spark.sql(f"""
+                SELECT last_ingested_at
+                FROM workspace.football_raw.ingestion_metadata
+                WHERE endpoint = '{endpoint}'
+                AND entity_id = {entity_id}
+                AND status IN ('success', 'skipped')
+                ORDER BY last_ingested_at DESC LIMIT 1
+            """).collect()
+        else:
+            result = spark.sql(f"""
+                SELECT last_ingested_at
+                FROM workspace.football_raw.ingestion_metadata
+                WHERE endpoint = '{endpoint}'
+                AND status IN ('success', 'skipped')
+                ORDER BY last_ingested_at DESC LIMIT 1
+            """).collect()
+        return result[0][0] if result else None
+    except Exception:
+        return None
+
+
+def update_metadata(
+    endpoint: str, rows_inserted: int,
+    status: str, entity_id: int = None
+):
+    now = datetime.now(tz=timezone.utc)
+    entity_val = str(entity_id) if entity_id else "NULL"
+    spark.sql(f"""
+        INSERT INTO workspace.football_raw.ingestion_metadata
+        (endpoint, entity_id, last_ingested_at, rows_inserted,
+         requests_used, status, created_at)
+        VALUES (
+            '{endpoint}', {entity_val}, '{now.isoformat()}',
+            {rows_inserted}, {requests_made}, '{status}',
+            '{now.isoformat()}'
+        )
+    """)
+
+
+def load_player_statistics(stats: list) -> int:
+    if not stats:
+        return 0
+    existing_ids = {
+        row[0] for row in spark.sql("""
+            SELECT DISTINCT fixture_id
+            FROM workspace.football_raw.raw_player_statistics
+        """).collect()
+    }
+    new_stats = [
+        s for s in stats
+        if s["fixture_id"] and s["fixture_id"] not in existing_ids
+    ]
+    if not new_stats:
+        return 0
+    df = spark.createDataFrame(new_stats)
+    df.write.mode("append").saveAsTable(
+        "workspace.football_raw.raw_player_statistics"
+    )
+    return len(new_stats)
+
+
+def main():
+    global requests_made
+    print("👤 Fetching player statistics...")
+    try:
+        combos = spark.sql("""
+            SELECT DISTINCT league_id, league_season
+            FROM workspace.football_raw.raw_fixtures
+            WHERE status_short = 'FT'
+            ORDER BY league_id, league_season
+        """).collect()
+        for row in combos:
+            league_id = row[0]
+            season = row[1]
+            requests_made = 0
+            last_ingested_at = get_last_ingested_at(
+                f"{ENDPOINT}_{season}", league_id
+            )
+            if last_ingested_at:
+                print(f"  League {league_id} season {season} "
+                      f"already ingested — skipping")
+                continue
+            print(f"\n  Fetching player stats for league "
+                  f"{league_id} season {season}...")
+            fixture_ids = get_fixture_ids(league_id, season)
+            print(f"  Found {len(fixture_ids)} fixtures")
+            all_stats = []
+            total_rows = 0
+            for fixture_id in fixture_ids:
+                response = fetch_from_api(
+                    "fixtures/players",
+                    params={"fixture": fixture_id}
+                )
+                records = response.get("response", [])
+                for record in records:
+                    team = record.get("team", {})
+                    team_id = team.get("id")
+                    team_name = team.get("name")
+                    for player_record in record.get("players", []):
+                        player = player_record.get("player", {})
+                        statistics = player_record.get(
+                            "statistics", [{}]
+                        )[0]
+                        all_stats.append(
+                            flatten_player_statistics(
+                                fixture_id, team_id,
+                                team_name, player, statistics
+                            )
+                        )
+                # batch write every 100 fixtures
+                if len(all_stats) >= 100 * 44:
+                    stat_rows = load_player_statistics(all_stats)
+                    total_rows += stat_rows
+                    print(f"  ✅ Batch loaded {stat_rows} player stats")
+                    all_stats = []
+            # load remaining
+            if all_stats:
+                stat_rows = load_player_statistics(all_stats)
+                total_rows += stat_rows
+                print(f"  ✅ Loaded {stat_rows} player stats")
+            update_metadata(
+                f"{ENDPOINT}_{season}",
+                total_rows, "success", league_id
+            )
+        print("\n🎉 Player statistics ingestion complete!")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        raise
+
+
+if __name__ == "__main__":
+    main()

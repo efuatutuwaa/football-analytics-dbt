@@ -14,7 +14,7 @@ if not API_KEY:
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
-ENDPOINT = "coachs"
+ENDPOINT = "transfers"
 
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
@@ -35,48 +35,32 @@ def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
     return response.json()
 
 
-def get_team_ids() -> list:
+def get_player_ids() -> list:
     result = spark.sql("""
-        SELECT DISTINCT team_id
-        FROM workspace.football_raw.raw_teams
-        ORDER BY team_id
+        SELECT DISTINCT player_id
+        FROM workspace.football_raw.raw_players
+        ORDER BY player_id
     """).collect()
     return [row[0] for row in result]
 
 
-def flatten_coach(record: dict) -> dict:
-    birth = record.get("birth", {})
-    team = record.get("team", {}) or {}
-    return {
-        "coach_id": record.get("id"),
-        "coach_name": record.get("name"),
-        "firstname": record.get("firstname"),
-        "lastname": record.get("lastname"),
-        "age": record.get("age"),
-        "birth_date": birth.get("date"),
-        "birth_place": birth.get("place"),
-        "birth_country": birth.get("country"),
-        "nationality": record.get("nationality"),
-        "height": record.get("height"),
-        "weight": record.get("weight"),
-        "photo_url": record.get("photo"),
-        "current_team_id": team.get("id"),
-        "current_team_name": team.get("name"),
-        "ingested_at": datetime.now(tz=timezone.utc),
-    }
-
-
-def flatten_coach_career(
-    coach_id: int, coach_name: str, career: dict
+def flatten_transfer(
+    player_id: int, player_name: str,
+    last_updated: str, transfer: dict
 ) -> dict:
-    team = career.get("team", {})
+    teams = transfer.get("teams", {})
+    team_in = teams.get("in", {})
+    team_out = teams.get("out", {})
     return {
-        "coach_id": coach_id,
-        "coach_name": coach_name,
-        "team_id": team.get("id"),
-        "team_name": team.get("name"),
-        "start_date": career.get("start"),
-        "end_date": career.get("end"),
+        "player_id": player_id,
+        "player_name": player_name,
+        "transfer_date": transfer.get("date"),
+        "transfer_type": transfer.get("type"),
+        "team_in_id": team_in.get("id"),
+        "team_in_name": team_in.get("name"),
+        "team_out_id": team_out.get("id"),
+        "team_out_name": team_out.get("name"),
+        "last_updated": last_updated,
         "ingested_at": datetime.now(tz=timezone.utc),
     }
 
@@ -123,58 +107,36 @@ def update_metadata(
     """)
 
 
-def load_coaches(coaches: list) -> int:
-    if not coaches:
+def load_transfers(transfers: list) -> int:
+    if not transfers:
         return 0
     existing_ids = {
         row[0] for row in spark.sql("""
-            SELECT coach_id FROM workspace.football_raw.raw_coaches
+            SELECT DISTINCT player_id
+            FROM workspace.football_raw.raw_transfers
         """).collect()
     }
-    new_coaches = [
-        c for c in coaches
-        if c["coach_id"] and c["coach_id"] not in existing_ids
+    new_transfers = [
+        t for t in transfers
+        if t["player_id"] and t["player_id"] not in existing_ids
     ]
-    if not new_coaches:
+    if not new_transfers:
         return 0
-    df = spark.createDataFrame(new_coaches)
+    df = spark.createDataFrame(new_transfers)
     df.write.mode("append").saveAsTable(
-        "workspace.football_raw.raw_coaches"
+        "workspace.football_raw.raw_transfers"
     )
-    return len(new_coaches)
+    return len(new_transfers)
 
 
-def load_coach_careers(careers: list) -> int:
-    if not careers:
-        return 0
-    existing_combos = {
-        (row[0], row[1], str(row[2])) for row in spark.sql("""
-            SELECT coach_id, team_id, start_date
-            FROM workspace.football_raw.raw_coach_careers
-        """).collect()
-    }
-    new_careers = [
-        c for c in careers
-        if (c["coach_id"], c["team_id"], str(c["start_date"]))
-        not in existing_combos
-    ]
-    if not new_careers:
-        return 0
-    df = spark.createDataFrame(new_careers)
-    df.write.mode("append").saveAsTable(
-        "workspace.football_raw.raw_coach_careers"
-    )
-    return len(new_careers)
-
-
-def log_skipped_team(team_id: int):
+def log_skipped_player(player_id: int):
     now = datetime.now(tz=timezone.utc)
     spark.sql(f"""
         INSERT INTO workspace.football_raw.ingestion_metadata
         (endpoint, entity_id, last_ingested_at, rows_inserted,
          requests_used, status, created_at)
         VALUES (
-            '{ENDPOINT}', {team_id}, '{now.isoformat()}',
+            '{ENDPOINT}', {player_id}, '{now.isoformat()}',
             0, {requests_made}, 'skipped', '{now.isoformat()}'
         )
     """)
@@ -182,43 +144,41 @@ def log_skipped_team(team_id: int):
 
 def main():
     global requests_made
-    print("👔 Fetching coaches...")
-    team_ids = get_team_ids()
-    print(f"  Found {len(team_ids)} unique teams")
+    print("🔄 Fetching transfers...")
     try:
-        for team_id in team_ids:
+        player_ids = get_player_ids()
+        print(f"  Found {len(player_ids)} players")
+        for player_id in player_ids:
             requests_made = 0
-            last_ingested_at = get_last_ingested_at(ENDPOINT, team_id)
+            last_ingested_at = get_last_ingested_at(ENDPOINT, player_id)
             if last_ingested_at:
-                print(f"  Team {team_id} already processed — skipping")
+                print(f"  Player {player_id} already processed — skipping")
                 continue
             response = fetch_from_api(
-                ENDPOINT, params={"team": team_id}
+                ENDPOINT, params={"player": player_id}
             )
             records = response.get("response", [])
             if not records:
-                print(f"  No coaches for team {team_id} — skipping")
-                log_skipped_team(team_id)
+                print(f"  No transfers for player {player_id} — skipping")
+                log_skipped_player(player_id)
                 continue
-            coaches = []
-            careers = []
+            all_transfers = []
             for record in records:
-                coaches.append(flatten_coach(record))
-                coach_id = record.get("id")
-                coach_name = record.get("name")
-                for career in record.get("career", []):
-                    careers.append(
-                        flatten_coach_career(coach_id, coach_name, career)
+                pid = record.get("player", {}).get("id")
+                pname = record.get("player", {}).get("name")
+                last_updated = record.get("update")
+                for transfer in record.get("transfers", []):
+                    all_transfers.append(
+                        flatten_transfer(
+                            pid, pname, last_updated, transfer
+                        )
                     )
-            coach_rows = load_coaches(coaches)
-            career_rows = load_coach_careers(careers)
-            print(f"  Team {team_id}: ✅ {coach_rows} coaches, "
-                  f"{career_rows} career records")
+            transfer_rows = load_transfers(all_transfers)
+            print(f"  Player {player_id}: ✅ {transfer_rows} transfers")
             update_metadata(
-                ENDPOINT, coach_rows + career_rows,
-                "success", team_id
+                ENDPOINT, transfer_rows, "success", player_id
             )
-        print("\n🎉 Coaches ingestion complete!")
+        print("\n🎉 Transfers ingestion complete!")
     except Exception as e:
         print(f"❌ Error: {e}")
         raise

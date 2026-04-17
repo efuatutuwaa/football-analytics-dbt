@@ -14,7 +14,7 @@ if not API_KEY:
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
-ENDPOINT = "players"
+ENDPOINT = "standings"
 
 LEAGUE_IDS = [39, 2, 1, 4, 15, 140, 78, 61, 135]
 SEASONS = [2020, 2021, 2022, 2023, 2024, 2025]
@@ -38,45 +38,49 @@ def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
     return response.json()
 
 
-def fetch_all_pages(league_id: int, season: int) -> list:
-    all_records = []
-    page = 1
-    while True:
-        print(f"    Fetching page {page}...")
-        response = fetch_from_api(
-            ENDPOINT,
-            params={"league": league_id, "season": season, "page": page}
-        )
-        records = response.get("response", [])
-        if not records:
-            break
-        all_records.extend(records)
-        paging = response.get("paging", {})
-        current = paging.get("current", 1)
-        total = paging.get("total", 1)
-        print(f"    Page {current}/{total} — {len(records)} players")
-        if current >= total:
-            break
-        page += 1
-    return all_records
-
-
-def flatten_player(record: dict) -> dict:
-    player = record.get("player", {})
-    birth = player.get("birth", {})
+def flatten_standing(
+    league_id: int, league_name: str,
+    season: int, record: dict
+) -> dict:
+    team = record.get("team", {})
+    all_stats = record.get("all", {})
+    home_stats = record.get("home", {})
+    away_stats = record.get("away", {})
+    all_goals = all_stats.get("goals", {})
+    home_goals = home_stats.get("goals", {})
+    away_goals = away_stats.get("goals", {})
     return {
-        "player_id": player.get("id"),
-        "player_name": player.get("name"),
-        "firstname": player.get("firstname"),
-        "lastname": player.get("lastname"),
-        "age": player.get("age"),
-        "birth_date": birth.get("date"),
-        "birth_place": birth.get("place"),
-        "birth_country": birth.get("country"),
-        "nationality": player.get("nationality"),
-        "height": player.get("height"),
-        "weight": player.get("weight"),
-        "photo_url": player.get("photo"),
+        "league_id": league_id,
+        "league_name": league_name,
+        "league_season": season,
+        "team_id": team.get("id"),
+        "team_name": team.get("name"),
+        "rank": record.get("rank"),
+        "points": record.get("points"),
+        "goals_diff": record.get("goalsDiff"),
+        "group_name": record.get("group"),
+        "form": record.get("form"),
+        "status": record.get("status"),
+        "description": record.get("description"),
+        "all_played": all_stats.get("played"),
+        "all_wins": all_stats.get("win"),
+        "all_draws": all_stats.get("draw"),
+        "all_losses": all_stats.get("lose"),
+        "all_goals_for": all_goals.get("for"),
+        "all_goals_against": all_goals.get("against"),
+        "home_played": home_stats.get("played"),
+        "home_wins": home_stats.get("win"),
+        "home_draws": home_stats.get("draw"),
+        "home_losses": home_stats.get("lose"),
+        "home_goals_for": home_goals.get("for"),
+        "home_goals_against": home_goals.get("against"),
+        "away_played": away_stats.get("played"),
+        "away_wins": away_stats.get("win"),
+        "away_draws": away_stats.get("draw"),
+        "away_losses": away_stats.get("lose"),
+        "away_goals_for": away_goals.get("for"),
+        "away_goals_against": away_goals.get("against"),
+        "last_updated": record.get("update"),
         "ingested_at": datetime.now(tz=timezone.utc),
     }
 
@@ -123,31 +127,32 @@ def update_metadata(
     """)
 
 
-def load_players(players: list) -> int:
-    if not players:
+def load_standings(standings: list) -> int:
+    if not standings:
         return 0
-    existing_ids = {
-        row[0] for row in spark.sql("""
-            SELECT player_id FROM workspace.football_raw.raw_players
+    existing_combos = {
+        (row[0], row[1]) for row in spark.sql("""
+            SELECT league_id, league_season
+            FROM workspace.football_raw.raw_standings
         """).collect()
     }
-    new_players = [
-        p for p in players
-        if p["player_id"] and p["player_id"] not in existing_ids
+    new_standings = [
+        s for s in standings
+        if (s["league_id"], s["league_season"])
+        not in existing_combos
     ]
-    if not new_players:
-        print("  No new players to load")
+    if not new_standings:
         return 0
-    df = spark.createDataFrame(new_players)
+    df = spark.createDataFrame(new_standings)
     df.write.mode("append").saveAsTable(
-        "workspace.football_raw.raw_players"
+        "workspace.football_raw.raw_standings"
     )
-    return len(new_players)
+    return len(new_standings)
 
 
 def main():
     global requests_made
-    print("👤 Fetching players...")
+    print("🏆 Fetching standings...")
     try:
         for league_id in LEAGUE_IDS:
             for season in SEASONS:
@@ -159,21 +164,35 @@ def main():
                     print(f"  League {league_id} season {season} "
                           f"already ingested — skipping")
                     continue
-                print(f"\n  Fetching players for league "
+                print(f"\n  Fetching standings for league "
                       f"{league_id} season {season}...")
-                records = fetch_all_pages(league_id, season)
+                response = fetch_from_api(
+                    ENDPOINT,
+                    params={"league": league_id, "season": season}
+                )
+                records = response.get("response", [])
                 if not records:
-                    print("  No players found — skipping")
+                    print("  No standings found — skipping")
                     continue
-                players = [flatten_player(r) for r in records]
-                print(f"  Got {len(players)} players")
-                player_rows = load_players(players)
-                print(f"  ✅ Loaded {player_rows} new players")
+                all_standings = []
+                for record in records:
+                    league = record.get("league", {})
+                    league_name = league.get("name")
+                    for group in league.get("standings", []):
+                        for standing in group:
+                            all_standings.append(
+                                flatten_standing(
+                                    league_id, league_name,
+                                    season, standing
+                                )
+                            )
+                standing_rows = load_standings(all_standings)
+                print(f"  ✅ Loaded {standing_rows} standings")
                 update_metadata(
                     f"{ENDPOINT}_{season}",
-                    player_rows, "success", league_id
+                    standing_rows, "success", league_id
                 )
-        print("\n🎉 Players ingestion complete!")
+        print("\n🎉 Standings ingestion complete!")
     except Exception as e:
         print(f"❌ Error: {e}")
         raise

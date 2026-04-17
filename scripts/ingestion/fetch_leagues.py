@@ -3,68 +3,44 @@ import time
 import requests
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-from databricks import sql
+from pyspark.sql import SparkSession
 
-# ── Config ────────────────────────────────────────────────
 load_dotenv()
 
 API_KEY = os.getenv("API_FOOTBALL_KEY")
-DATABRICKS_HOST = os.getenv("DATABRICKS_HOST")
-DATABRICKS_HTTP_PATH = os.getenv("DATABRICKS_HTTP_PATH")
-DATABRICKS_TOKEN = os.getenv("DATABRICKS_TOKEN")
 
-if not all([API_KEY, DATABRICKS_HOST, DATABRICKS_HTTP_PATH, DATABRICKS_TOKEN]):
-    raise ValueError("Missing one or more env vars — check your .env file")
+if not API_KEY:
+    raise ValueError("Missing API_FOOTBALL_KEY — check your .env file")
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
 ENDPOINT = "leagues"
 
-LEAGUE_IDS = [
-    39,   # Premier League
-    2,    # UEFA Champions League
-    1,    # World Cup
-    4,    # Euros
-    15,   # Club World Cup
-    140,  # La Liga
-    78,   # Bundesliga
-    61,   # Ligue 1
-    135,  # Serie A
-]
-
+LEAGUE_IDS = [39, 2, 1, 4, 15, 140, 78, 61, 135]
 SEASONS = [2020, 2021, 2022, 2023, 2024, 2025]
 
-# ── Request counter ───────────────────────────────────────
+spark = SparkSession.builder.getOrCreate()
 requests_made = 0
 
 
-# ── API Fetcher ───────────────────────────────────────────
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
-    """Fetch data from API-Football with rate limiting."""
     global requests_made
-
     url = f"{API_BASE_URL}/{endpoint}"
     response = requests.get(url, headers=HEADERS, params=params)
     response.raise_for_status()
     requests_made += 1
-
     remaining = response.headers.get("x-ratelimit-requests-remaining")
     limit = response.headers.get("x-ratelimit-requests-limit")
     print(f"  API requests remaining: {remaining}/{limit}")
-
     if remaining and int(remaining) < 100:
         raise Exception("⚠️ API request limit almost reached — stopping!")
-
     time.sleep(0.5)
     return response.json()
 
 
-# ── Flatten league ────────────────────────────────────────
 def flatten_league(record: dict) -> dict:
-    """Flatten league metadata from API response."""
     league = record.get("league", {})
     country = record.get("country", {})
-
     return {
         "league_id": league.get("id"),
         "league_name": league.get("name"),
@@ -77,12 +53,9 @@ def flatten_league(record: dict) -> dict:
     }
 
 
-# ── Flatten league season ─────────────────────────────────
 def flatten_league_season(league_id: int, season: dict) -> dict:
-    """Flatten season data from API response."""
     coverage = season.get("coverage", {})
     fixtures = coverage.get("fixtures", {})
-
     return {
         "league_id": league_id,
         "season_year": season.get("year"),
@@ -101,226 +74,118 @@ def flatten_league_season(league_id: int, season: dict) -> dict:
     }
 
 
-# ── Incremental check ─────────────────────────────────────
-def get_last_ingested_at(
-    cursor,
-    endpoint: str,
-    league_id: int = None
-):
-    """Get the last ingestion timestamp per endpoint and league."""
-    if league_id:
-        cursor.execute("""
-            SELECT last_ingested_at
-            FROM football_raw.ingestion_metadata
-            WHERE endpoint = ?
-            AND entity_id = ?
-            AND status = 'success'
-            ORDER BY last_ingested_at DESC
-            LIMIT 1
-        """, [endpoint, league_id])
-    else:
-        cursor.execute("""
-            SELECT last_ingested_at
-            FROM football_raw.ingestion_metadata
-            WHERE endpoint = ?
-            AND status = 'success'
-            ORDER BY last_ingested_at DESC
-            LIMIT 1
-        """, [endpoint])
-    row = cursor.fetchone()
-    return row[0] if row else None
+def get_last_ingested_at(endpoint: str, entity_id: int = None):
+    try:
+        if entity_id:
+            result = spark.sql(f"""
+                SELECT last_ingested_at
+                FROM workspace.football_raw.ingestion_metadata
+                WHERE endpoint = '{endpoint}'
+                AND entity_id = {entity_id}
+                AND status IN ('success', 'skipped')
+                ORDER BY last_ingested_at DESC LIMIT 1
+            """).collect()
+        else:
+            result = spark.sql(f"""
+                SELECT last_ingested_at
+                FROM workspace.football_raw.ingestion_metadata
+                WHERE endpoint = '{endpoint}'
+                AND status IN ('success', 'skipped')
+                ORDER BY last_ingested_at DESC LIMIT 1
+            """).collect()
+        return result[0][0] if result else None
+    except Exception:
+        return None
 
 
-# ── Update metadata ───────────────────────────────────────
 def update_metadata(
-    cursor,
-    endpoint: str,
-    rows_inserted: int,
-    status: str,
-    league_id: int = None
+    endpoint: str, rows_inserted: int,
+    status: str, entity_id: int = None
 ):
-    """Update ingestion metadata after each run."""
-    cursor.execute("""
-        INSERT INTO football_raw.ingestion_metadata (
-            endpoint,
-            entity_id,
-            last_ingested_at,
-            rows_inserted,
-            requests_used,
-            status,
-            created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, [
-        endpoint,
-        league_id,
-        datetime.now(tz=timezone.utc),
-        rows_inserted,
-        requests_made,
-        status,
-        datetime.now(tz=timezone.utc),
-    ])
+    now = datetime.now(tz=timezone.utc)
+    entity_val = str(entity_id) if entity_id else "NULL"
+    spark.sql(f"""
+        INSERT INTO workspace.football_raw.ingestion_metadata
+        (endpoint, entity_id, last_ingested_at, rows_inserted,
+         requests_used, status, created_at)
+        VALUES (
+            '{endpoint}', {entity_val}, '{now.isoformat()}',
+            {rows_inserted}, {requests_made}, '{status}',
+            '{now.isoformat()}'
+        )
+    """)
 
 
-# ── Load leagues ──────────────────────────────────────────
-def load_leagues(cursor, leagues: list) -> int:
-    """Load league metadata into football_raw.raw_leagues."""
-    rows_inserted = 0
-    for record in leagues:
-        cursor.execute("""
-            INSERT INTO football_raw.raw_leagues (
-                league_id,
-                league_name,
-                league_type,
-                league_logo_url,
-                country_name,
-                country_code,
-                country_flag_url,
-                ingested_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, [
-            record["league_id"],
-            record["league_name"],
-            record["league_type"],
-            record["league_logo_url"],
-            record["country_name"],
-            record["country_code"],
-            record["country_flag_url"],
-            record["ingested_at"],
-        ])
-        rows_inserted += 1
-    return rows_inserted
+def load_leagues(leagues: list) -> int:
+    if not leagues:
+        return 0
+    existing_ids = {
+        row[0] for row in spark.sql("""
+            SELECT league_id FROM workspace.football_raw.raw_leagues
+        """).collect()
+    }
+    new_leagues = [
+        lg for lg in leagues
+        if lg["league_id"] and lg["league_id"] not in existing_ids
+    ]
+    if not new_leagues:
+        return 0
+    df = spark.createDataFrame(new_leagues)
+    df.write.mode("append").saveAsTable(
+        "workspace.football_raw.raw_leagues"
+    )
+    return len(new_leagues)
 
 
-# ── Load league seasons ───────────────────────────────────
-def load_league_seasons(cursor, seasons: list) -> int:
-    """Load season data into football_raw.raw_league_seasons."""
-    rows_inserted = 0
-    for record in seasons:
-        cursor.execute("""
-            INSERT INTO football_raw.raw_league_seasons (
-                league_id,
-                season_year,
-                season_start,
-                season_end,
-                is_current_season,
-                coverage_fixtures_events,
-                coverage_fixtures_lineups,
-                coverage_standings,
-                coverage_players,
-                coverage_top_scorers,
-                coverage_injuries,
-                coverage_predictions,
-                coverage_odds,
-                ingested_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, [
-            record["league_id"],
-            record["season_year"],
-            record["season_start"],
-            record["season_end"],
-            record["is_current_season"],
-            record["coverage_fixtures_events"],
-            record["coverage_fixtures_lineups"],
-            record["coverage_standings"],
-            record["coverage_players"],
-            record["coverage_top_scorers"],
-            record["coverage_injuries"],
-            record["coverage_predictions"],
-            record["coverage_odds"],
-            record["ingested_at"],
-        ])
-        rows_inserted += 1
-    return rows_inserted
+def load_league_seasons(seasons: list) -> int:
+    if not seasons:
+        return 0
+    existing_combos = {
+        (row[0], row[1]) for row in spark.sql("""
+            SELECT league_id, season_year
+            FROM workspace.football_raw.raw_league_seasons
+        """).collect()
+    }
+    new_seasons = [
+        s for s in seasons
+        if (s["league_id"], s["season_year"]) not in existing_combos
+    ]
+    if not new_seasons:
+        return 0
+    df = spark.createDataFrame(new_seasons)
+    df.write.mode("append").saveAsTable(
+        "workspace.football_raw.raw_league_seasons"
+    )
+    return len(new_seasons)
 
 
-# ── Main loader ───────────────────────────────────────────
-def load_to_databricks(
-    league_id: int,
-    leagues: list,
-    seasons: list
-) -> None:
-    """Load leagues and seasons into Databricks."""
-    with sql.connect(
-        server_hostname=DATABRICKS_HOST,
-        http_path=DATABRICKS_HTTP_PATH,
-        access_token=DATABRICKS_TOKEN,
-        catalog="workspace"
-    ) as connection:
-        with connection.cursor() as cursor:
-
-            last_ingested_at = get_last_ingested_at(
-                cursor,
-                ENDPOINT,
-                league_id
-            )
-
-            if last_ingested_at:
-                print(f"  League {league_id} already ingested at "
-                      f"{last_ingested_at} — skipping")
-                return
-
-            league_rows = load_leagues(cursor, leagues)
-            print(f"  ✅ Loaded {league_rows} league records")
-
-            season_rows = load_league_seasons(cursor, seasons)
-            print(f"  ✅ Loaded {season_rows} season records")
-
-            update_metadata(
-                cursor,
-                ENDPOINT,
-                league_rows + season_rows,
-                "success",
-                league_id
-            )
-
-
-# ── Main ──────────────────────────────────────────────────
 def main():
     global requests_made
     print("🏆 Fetching leagues...")
-
     try:
         for league_id in LEAGUE_IDS:
-            requests_made = 0  # reset per league
-
-            with sql.connect(
-                server_hostname=DATABRICKS_HOST,
-                http_path=DATABRICKS_HTTP_PATH,
-                access_token=DATABRICKS_TOKEN,
-                catalog="workspace"
-            ) as connection:
-                with connection.cursor() as cursor:
-                    if get_last_ingested_at(cursor, ENDPOINT, league_id):
-                        print(f"  League {league_id} already processed — skipping")
-                        continue
-
+            requests_made = 0
+            last_ingested_at = get_last_ingested_at(ENDPOINT, league_id)
+            if last_ingested_at:
+                print(f"  League {league_id} already ingested — skipping")
+                continue
             print(f"\n  Fetching league {league_id}...")
             response = fetch_from_api(ENDPOINT, params={"id": league_id})
             records = response.get("response", [])
-
             leagues = []
             seasons = []
-
             for record in records:
                 leagues.append(flatten_league(record))
-
-                league_id_from_response = record.get("league", {}).get("id")
+                lid = record.get("league", {}).get("id")
                 for season in record.get("seasons", []):
                     if season.get("year") in SEASONS:
-                        seasons.append(
-                            flatten_league_season(
-                                league_id_from_response,
-                                season
-                            )
-                        )
-
-            print(f"  Got {len(leagues)} league records")
-            print(f"  Got {len(seasons)} season records")
-
-            load_to_databricks(league_id, leagues, seasons)
-
+                        seasons.append(flatten_league_season(lid, season))
+            league_rows = load_leagues(leagues)
+            season_rows = load_league_seasons(seasons)
+            print(f"  ✅ Loaded {league_rows} leagues")
+            print(f"  ✅ Loaded {season_rows} seasons")
+            update_metadata(ENDPOINT, league_rows + season_rows, "success", league_id)
         print("\n🎉 Leagues ingestion complete!")
-
     except Exception as e:
         print(f"❌ Error: {e}")
         raise
