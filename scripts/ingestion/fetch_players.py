@@ -3,6 +3,7 @@ import requests
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from config import API_FOOTBALL_KEY as API_KEY
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
@@ -13,6 +14,22 @@ SEASONS = [2020, 2021, 2022, 2023, 2024, 2025]
 
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
+
+PLAYER_SCHEMA = StructType([
+    StructField("player_id", IntegerType(), True),
+    StructField("player_name", StringType(), True),
+    StructField("firstname", StringType(), True),
+    StructField("lastname", StringType(), True),
+    StructField("age", IntegerType(), True),
+    StructField("birth_date", StringType(), True),
+    StructField("birth_place", StringType(), True),
+    StructField("birth_country", StringType(), True),
+    StructField("nationality", StringType(), True),
+    StructField("height", StringType(), True),
+    StructField("weight", StringType(), True),
+    StructField("photo_url", StringType(), True),
+    StructField("ingested_at", TimestampType(), True),
+])
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
@@ -130,7 +147,7 @@ def load_players(players: list) -> int:
     if not new_players:
         print("  No new players to load")
         return 0
-    df = spark.createDataFrame(new_players)
+    df = spark.createDataFrame(new_players, schema=PLAYER_SCHEMA)
     df.write.mode("append").saveAsTable(
         "workspace.football_raw.raw_players"
     )

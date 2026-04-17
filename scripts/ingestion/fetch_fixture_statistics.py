@@ -3,6 +3,7 @@ import requests
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from config import API_FOOTBALL_KEY as API_KEY
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
@@ -10,6 +11,29 @@ ENDPOINT = "fixtures/statistics"
 
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
+
+FIXTURE_STATS_SCHEMA = StructType([
+    StructField("fixture_id", IntegerType(), True),
+    StructField("team_id", IntegerType(), True),
+    StructField("team_name", StringType(), True),
+    StructField("shots_on_goal", IntegerType(), True),
+    StructField("shots_off_goal", IntegerType(), True),
+    StructField("total_shots", IntegerType(), True),
+    StructField("blocked_shots", IntegerType(), True),
+    StructField("shots_inside_box", IntegerType(), True),
+    StructField("shots_outside_box", IntegerType(), True),
+    StructField("fouls", IntegerType(), True),
+    StructField("corner_kicks", IntegerType(), True),
+    StructField("offsides", IntegerType(), True),
+    StructField("ball_possession", StringType(), True),
+    StructField("yellow_cards", IntegerType(), True),
+    StructField("red_cards", IntegerType(), True),
+    StructField("goalkeeper_saves", IntegerType(), True),
+    StructField("total_passes", IntegerType(), True),
+    StructField("accurate_passes", IntegerType(), True),
+    StructField("pass_accuracy", StringType(), True),
+    StructField("ingested_at", TimestampType(), True),
+])
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
@@ -128,7 +152,7 @@ def load_fixture_statistics(statistics: list) -> int:
     ]
     if not new_stats:
         return 0
-    df = spark.createDataFrame(new_stats)
+    df = spark.createDataFrame(new_stats, schema=FIXTURE_STATS_SCHEMA)
     df.write.mode("append").saveAsTable(
         "workspace.football_raw.raw_fixture_statistics"
     )

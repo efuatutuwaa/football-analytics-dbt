@@ -3,6 +3,7 @@ import requests
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from config import API_FOOTBALL_KEY as API_KEY
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType, BooleanType
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
@@ -10,6 +11,28 @@ ENDPOINT = "fixtures/lineups"
 
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
+
+LINEUP_SCHEMA = StructType([
+    StructField("fixture_id", IntegerType(), True),
+    StructField("team_id", IntegerType(), True),
+    StructField("team_name", StringType(), True),
+    StructField("formation", StringType(), True),
+    StructField("coach_id", IntegerType(), True),
+    StructField("coach_name", StringType(), True),
+    StructField("ingested_at", TimestampType(), True),
+])
+
+LINEUP_PLAYER_SCHEMA = StructType([
+    StructField("fixture_id", IntegerType(), True),
+    StructField("team_id", IntegerType(), True),
+    StructField("player_id", IntegerType(), True),
+    StructField("player_name", StringType(), True),
+    StructField("jersey_number", IntegerType(), True),
+    StructField("position", StringType(), True),
+    StructField("grid_position", StringType(), True),
+    StructField("is_starter", BooleanType(), True),
+    StructField("ingested_at", TimestampType(), True),
+])
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
@@ -128,7 +151,7 @@ def load_fixture_lineups(lineups: list) -> int:
     ]
     if not new_lineups:
         return 0
-    df = spark.createDataFrame(new_lineups)
+    df = spark.createDataFrame(new_lineups, schema=LINEUP_SCHEMA)
     df.write.mode("append").saveAsTable(
         "workspace.football_raw.raw_fixture_lineups"
     )
@@ -150,7 +173,7 @@ def load_lineup_players(players: list) -> int:
     ]
     if not new_players:
         return 0
-    df = spark.createDataFrame(new_players)
+    df = spark.createDataFrame(new_players, schema=LINEUP_PLAYER_SCHEMA)
     df.write.mode("append").saveAsTable(
         "workspace.football_raw.raw_fixture_lineup_players"
     )

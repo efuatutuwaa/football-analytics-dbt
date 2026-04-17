@@ -3,6 +3,7 @@ import requests
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from config import API_FOOTBALL_KEY as API_KEY
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType, BooleanType
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
@@ -13,6 +14,35 @@ SEASONS = [2020, 2021, 2022, 2023, 2024, 2025]
 
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
+
+TEAM_SCHEMA = StructType([
+    StructField("team_id", IntegerType(), True),
+    StructField("team_name", StringType(), True),
+    StructField("team_code", StringType(), True),
+    StructField("team_country", StringType(), True),
+    StructField("founded_year", IntegerType(), True),
+    StructField("is_national_team", BooleanType(), True),
+    StructField("team_logo_url", StringType(), True),
+    StructField("ingested_at", TimestampType(), True),
+])
+
+VENUE_SCHEMA = StructType([
+    StructField("venue_id", IntegerType(), True),
+    StructField("venue_name", StringType(), True),
+    StructField("venue_address", StringType(), True),
+    StructField("venue_city", StringType(), True),
+    StructField("venue_capacity", IntegerType(), True),
+    StructField("venue_surface", StringType(), True),
+    StructField("venue_image_url", StringType(), True),
+    StructField("ingested_at", TimestampType(), True),
+])
+
+TEAM_SEASON_SCHEMA = StructType([
+    StructField("team_id", IntegerType(), True),
+    StructField("league_id", IntegerType(), True),
+    StructField("season_year", IntegerType(), True),
+    StructField("ingested_at", TimestampType(), True),
+])
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
@@ -125,7 +155,7 @@ def load_teams(teams: list) -> int:
     ]
     if not new_teams:
         return 0
-    df = spark.createDataFrame(new_teams)
+    df = spark.createDataFrame(new_teams, schema=TEAM_SCHEMA)
     df.write.mode("append").saveAsTable(
         "workspace.football_raw.raw_teams"
     )
@@ -146,7 +176,7 @@ def load_venues(venues: list) -> int:
     ]
     if not new_venues:
         return 0
-    df = spark.createDataFrame(new_venues)
+    df = spark.createDataFrame(new_venues, schema=VENUE_SCHEMA)
     df.write.mode("append").saveAsTable(
         "workspace.football_raw.raw_venues"
     )
@@ -169,7 +199,7 @@ def load_team_seasons(team_seasons: list) -> int:
     ]
     if not new_seasons:
         return 0
-    df = spark.createDataFrame(new_seasons)
+    df = spark.createDataFrame(new_seasons, schema=TEAM_SEASON_SCHEMA)
     df.write.mode("append").saveAsTable(
         "workspace.football_raw.raw_team_seasons"
     )

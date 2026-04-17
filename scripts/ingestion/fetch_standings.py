@@ -3,6 +3,7 @@ import requests
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from config import API_FOOTBALL_KEY as API_KEY
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
@@ -13,6 +14,41 @@ SEASONS = [2020, 2021, 2022, 2023, 2024, 2025]
 
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
+
+STANDING_SCHEMA = StructType([
+    StructField("league_id", IntegerType(), True),
+    StructField("league_name", StringType(), True),
+    StructField("league_season", IntegerType(), True),
+    StructField("team_id", IntegerType(), True),
+    StructField("team_name", StringType(), True),
+    StructField("rank", IntegerType(), True),
+    StructField("points", IntegerType(), True),
+    StructField("goals_diff", IntegerType(), True),
+    StructField("group_name", StringType(), True),
+    StructField("form", StringType(), True),
+    StructField("status", StringType(), True),
+    StructField("description", StringType(), True),
+    StructField("all_played", IntegerType(), True),
+    StructField("all_wins", IntegerType(), True),
+    StructField("all_draws", IntegerType(), True),
+    StructField("all_losses", IntegerType(), True),
+    StructField("all_goals_for", IntegerType(), True),
+    StructField("all_goals_against", IntegerType(), True),
+    StructField("home_played", IntegerType(), True),
+    StructField("home_wins", IntegerType(), True),
+    StructField("home_draws", IntegerType(), True),
+    StructField("home_losses", IntegerType(), True),
+    StructField("home_goals_for", IntegerType(), True),
+    StructField("home_goals_against", IntegerType(), True),
+    StructField("away_played", IntegerType(), True),
+    StructField("away_wins", IntegerType(), True),
+    StructField("away_draws", IntegerType(), True),
+    StructField("away_losses", IntegerType(), True),
+    StructField("away_goals_for", IntegerType(), True),
+    StructField("away_goals_against", IntegerType(), True),
+    StructField("last_updated", StringType(), True),
+    StructField("ingested_at", TimestampType(), True),
+])
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
@@ -135,7 +171,7 @@ def load_standings(standings: list) -> int:
     ]
     if not new_standings:
         return 0
-    df = spark.createDataFrame(new_standings)
+    df = spark.createDataFrame(new_standings, schema=STANDING_SCHEMA)
     df.write.mode("append").saveAsTable(
         "workspace.football_raw.raw_standings"
     )

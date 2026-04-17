@@ -3,6 +3,7 @@ import requests
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from config import API_FOOTBALL_KEY as API_KEY
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
@@ -10,6 +11,19 @@ ENDPOINT = "transfers"
 
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
+
+TRANSFER_SCHEMA = StructType([
+    StructField("player_id", IntegerType(), True),
+    StructField("player_name", StringType(), True),
+    StructField("transfer_date", StringType(), True),
+    StructField("transfer_type", StringType(), True),
+    StructField("team_in_id", IntegerType(), True),
+    StructField("team_in_name", StringType(), True),
+    StructField("team_out_id", IntegerType(), True),
+    StructField("team_out_name", StringType(), True),
+    StructField("last_updated", StringType(), True),
+    StructField("ingested_at", TimestampType(), True),
+])
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
@@ -114,7 +128,7 @@ def load_transfers(transfers: list) -> int:
     ]
     if not new_transfers:
         return 0
-    df = spark.createDataFrame(new_transfers)
+    df = spark.createDataFrame(new_transfers, schema=TRANSFER_SCHEMA)
     df.write.mode("append").saveAsTable(
         "workspace.football_raw.raw_transfers"
     )

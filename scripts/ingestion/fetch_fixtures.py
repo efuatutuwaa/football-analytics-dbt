@@ -3,6 +3,7 @@ import requests
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from config import API_FOOTBALL_KEY as API_KEY
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, LongType, TimestampType, BooleanType
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
@@ -13,6 +14,48 @@ SEASONS = [2020, 2021, 2022, 2023, 2024, 2025]
 
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
+
+FIXTURE_SCHEMA = StructType([
+    StructField("fixture_id", IntegerType(), True),
+    StructField("referee", StringType(), True),
+    StructField("timezone", StringType(), True),
+    StructField("match_date", StringType(), True),
+    StructField("match_timestamp", LongType(), True),
+    StructField("first_period_start", LongType(), True),
+    StructField("second_period_start", LongType(), True),
+    StructField("venue_id", IntegerType(), True),
+    StructField("venue_name", StringType(), True),
+    StructField("venue_city", StringType(), True),
+    StructField("status_long", StringType(), True),
+    StructField("status_short", StringType(), True),
+    StructField("elapsed_minutes", IntegerType(), True),
+    StructField("extra_time", IntegerType(), True),
+    StructField("league_id", IntegerType(), True),
+    StructField("league_name", StringType(), True),
+    StructField("league_country", StringType(), True),
+    StructField("league_season", IntegerType(), True),
+    StructField("league_round", StringType(), True),
+    StructField("home_team_id", IntegerType(), True),
+    StructField("home_team_name", StringType(), True),
+    StructField("home_team_winner", BooleanType(), True),
+    StructField("away_team_id", IntegerType(), True),
+    StructField("away_team_name", StringType(), True),
+    StructField("away_team_winner", BooleanType(), True),
+    StructField("ingested_at", TimestampType(), True),
+])
+
+SCORE_SCHEMA = StructType([
+    StructField("fixture_id", IntegerType(), True),
+    StructField("halftime_home", IntegerType(), True),
+    StructField("halftime_away", IntegerType(), True),
+    StructField("fulltime_home", IntegerType(), True),
+    StructField("fulltime_away", IntegerType(), True),
+    StructField("extratime_home", IntegerType(), True),
+    StructField("extratime_away", IntegerType(), True),
+    StructField("penalty_home", IntegerType(), True),
+    StructField("penalty_away", IntegerType(), True),
+    StructField("ingested_at", TimestampType(), True),
+])
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
@@ -146,7 +189,7 @@ def load_fixtures(fixtures: list) -> int:
     ]
     if not new_fixtures:
         return 0
-    df = spark.createDataFrame(new_fixtures)
+    df = spark.createDataFrame(new_fixtures, schema=FIXTURE_SCHEMA)
     df.write.mode("append").saveAsTable(
         "workspace.football_raw.raw_fixtures"
     )
@@ -168,7 +211,7 @@ def load_fixture_scores(scores: list) -> int:
     ]
     if not new_scores:
         return 0
-    df = spark.createDataFrame(new_scores)
+    df = spark.createDataFrame(new_scores, schema=SCORE_SCHEMA)
     df.write.mode("append").saveAsTable(
         "workspace.football_raw.raw_fixture_scores"
     )

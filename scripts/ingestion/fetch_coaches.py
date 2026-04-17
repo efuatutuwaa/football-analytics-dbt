@@ -3,6 +3,7 @@ import requests
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from config import API_FOOTBALL_KEY as API_KEY
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
@@ -10,6 +11,34 @@ ENDPOINT = "coachs"
 
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
+
+COACH_SCHEMA = StructType([
+    StructField("coach_id", IntegerType(), True),
+    StructField("coach_name", StringType(), True),
+    StructField("firstname", StringType(), True),
+    StructField("lastname", StringType(), True),
+    StructField("age", IntegerType(), True),
+    StructField("birth_date", StringType(), True),
+    StructField("birth_place", StringType(), True),
+    StructField("birth_country", StringType(), True),
+    StructField("nationality", StringType(), True),
+    StructField("height", StringType(), True),
+    StructField("weight", StringType(), True),
+    StructField("photo_url", StringType(), True),
+    StructField("current_team_id", IntegerType(), True),
+    StructField("current_team_name", StringType(), True),
+    StructField("ingested_at", TimestampType(), True),
+])
+
+COACH_CAREER_SCHEMA = StructType([
+    StructField("coach_id", IntegerType(), True),
+    StructField("coach_name", StringType(), True),
+    StructField("team_id", IntegerType(), True),
+    StructField("team_name", StringType(), True),
+    StructField("start_date", StringType(), True),
+    StructField("end_date", StringType(), True),
+    StructField("ingested_at", TimestampType(), True),
+])
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
@@ -129,7 +158,7 @@ def load_coaches(coaches: list) -> int:
     ]
     if not new_coaches:
         return 0
-    df = spark.createDataFrame(new_coaches)
+    df = spark.createDataFrame(new_coaches, schema=COACH_SCHEMA)
     df.write.mode("append").saveAsTable(
         "workspace.football_raw.raw_coaches"
     )
@@ -152,7 +181,7 @@ def load_coach_careers(careers: list) -> int:
     ]
     if not new_careers:
         return 0
-    df = spark.createDataFrame(new_careers)
+    df = spark.createDataFrame(new_careers, schema=COACH_CAREER_SCHEMA)
     df.write.mode("append").saveAsTable(
         "workspace.football_raw.raw_coach_careers"
     )

@@ -3,6 +3,7 @@ import requests
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from config import API_FOOTBALL_KEY as API_KEY
+from pyspark.sql.types import StructType, StructField, StringType, TimestampType
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
@@ -10,6 +11,13 @@ ENDPOINT = "countries"
 
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
+
+COUNTRY_SCHEMA = StructType([
+    StructField("country_name", StringType(), True),
+    StructField("country_code", StringType(), True),
+    StructField("country_flag_url", StringType(), True),
+    StructField("ingested_at", TimestampType(), True),
+])
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
@@ -81,7 +89,7 @@ def load_countries(countries: list) -> int:
     if not new_countries:
         print("  No new countries to load")
         return 0
-    df = spark.createDataFrame(new_countries)
+    df = spark.createDataFrame(new_countries, schema=COUNTRY_SCHEMA)
     df.write.mode("append").saveAsTable(
         "workspace.football_raw.raw_countries"
     )

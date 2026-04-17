@@ -3,6 +3,7 @@ import requests
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from config import API_FOOTBALL_KEY as API_KEY
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType, BooleanType
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
@@ -13,6 +14,34 @@ SEASONS = [2020, 2021, 2022, 2023, 2024, 2025]
 
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
+
+LEAGUE_SCHEMA = StructType([
+    StructField("league_id", IntegerType(), True),
+    StructField("league_name", StringType(), True),
+    StructField("league_type", StringType(), True),
+    StructField("league_logo_url", StringType(), True),
+    StructField("country_name", StringType(), True),
+    StructField("country_code", StringType(), True),
+    StructField("country_flag_url", StringType(), True),
+    StructField("ingested_at", TimestampType(), True),
+])
+
+LEAGUE_SEASON_SCHEMA = StructType([
+    StructField("league_id", IntegerType(), True),
+    StructField("season_year", IntegerType(), True),
+    StructField("season_start", StringType(), True),
+    StructField("season_end", StringType(), True),
+    StructField("is_current_season", BooleanType(), True),
+    StructField("coverage_fixtures_events", BooleanType(), True),
+    StructField("coverage_fixtures_lineups", BooleanType(), True),
+    StructField("coverage_standings", BooleanType(), True),
+    StructField("coverage_players", BooleanType(), True),
+    StructField("coverage_top_scorers", BooleanType(), True),
+    StructField("coverage_injuries", BooleanType(), True),
+    StructField("coverage_predictions", BooleanType(), True),
+    StructField("coverage_odds", BooleanType(), True),
+    StructField("ingested_at", TimestampType(), True),
+])
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
@@ -122,7 +151,7 @@ def load_leagues(leagues: list) -> int:
     ]
     if not new_leagues:
         return 0
-    df = spark.createDataFrame(new_leagues)
+    df = spark.createDataFrame(new_leagues, schema=LEAGUE_SCHEMA)
     df.write.mode("append").saveAsTable(
         "workspace.football_raw.raw_leagues"
     )
@@ -144,7 +173,7 @@ def load_league_seasons(seasons: list) -> int:
     ]
     if not new_seasons:
         return 0
-    df = spark.createDataFrame(new_seasons)
+    df = spark.createDataFrame(new_seasons, schema=LEAGUE_SEASON_SCHEMA)
     df.write.mode("append").saveAsTable(
         "workspace.football_raw.raw_league_seasons"
     )
