@@ -1,9 +1,9 @@
 import time
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from pyspark.sql import SparkSession
 from config import API_FOOTBALL_KEY as API_KEY
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType, DateType
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
@@ -18,7 +18,7 @@ COACH_SCHEMA = StructType([
     StructField("firstname", StringType(), True),
     StructField("lastname", StringType(), True),
     StructField("age", IntegerType(), True),
-    StructField("birth_date", StringType(), True),
+    StructField("birth_date", DateType(), True),
     StructField("birth_place", StringType(), True),
     StructField("birth_country", StringType(), True),
     StructField("nationality", StringType(), True),
@@ -35,8 +35,8 @@ COACH_CAREER_SCHEMA = StructType([
     StructField("coach_name", StringType(), True),
     StructField("team_id", IntegerType(), True),
     StructField("team_name", StringType(), True),
-    StructField("start_date", StringType(), True),
-    StructField("end_date", StringType(), True),
+    StructField("start_date", DateType(), True),
+    StructField("end_date", DateType(), True),
     StructField("ingested_at", TimestampType(), True),
 ])
 
@@ -65,6 +65,15 @@ def get_team_ids() -> list:
     return [row[0] for row in result]
 
 
+def _parse_date(val: str):
+    if not val:
+        return None
+    try:
+        return date.fromisoformat(val)
+    except (ValueError, TypeError):
+        return None
+
+
 def flatten_coach(record: dict) -> dict:
     birth = record.get("birth", {})
     team = record.get("team", {}) or {}
@@ -74,7 +83,7 @@ def flatten_coach(record: dict) -> dict:
         "firstname": record.get("firstname"),
         "lastname": record.get("lastname"),
         "age": record.get("age"),
-        "birth_date": birth.get("date"),
+        "birth_date": _parse_date(birth.get("date")),
         "birth_place": birth.get("place"),
         "birth_country": birth.get("country"),
         "nationality": record.get("nationality"),
@@ -96,8 +105,8 @@ def flatten_coach_career(
         "coach_name": coach_name,
         "team_id": team.get("id"),
         "team_name": team.get("name"),
-        "start_date": career.get("start"),
-        "end_date": career.get("end"),
+        "start_date": _parse_date(career.get("start")),
+        "end_date": _parse_date(career.get("end")),
         "ingested_at": datetime.now(tz=timezone.utc),
     }
 

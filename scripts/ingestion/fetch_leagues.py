@@ -1,9 +1,9 @@
 import time
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from pyspark.sql import SparkSession
 from config import API_FOOTBALL_KEY as API_KEY
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType, BooleanType
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType, BooleanType, DateType
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
@@ -29,8 +29,8 @@ LEAGUE_SCHEMA = StructType([
 LEAGUE_SEASON_SCHEMA = StructType([
     StructField("league_id", IntegerType(), True),
     StructField("season_year", IntegerType(), True),
-    StructField("season_start", StringType(), True),
-    StructField("season_end", StringType(), True),
+    StructField("season_start", DateType(), True),
+    StructField("season_end", DateType(), True),
     StructField("is_current_season", BooleanType(), True),
     StructField("coverage_fixtures_events", BooleanType(), True),
     StructField("coverage_fixtures_lineups", BooleanType(), True),
@@ -59,6 +59,15 @@ def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
     return response.json()
 
 
+def _parse_date(val: str):
+    if not val:
+        return None
+    try:
+        return date.fromisoformat(val)
+    except (ValueError, TypeError):
+        return None
+
+
 def flatten_league(record: dict) -> dict:
     league = record.get("league", {})
     country = record.get("country", {})
@@ -80,8 +89,8 @@ def flatten_league_season(league_id: int, season: dict) -> dict:
     return {
         "league_id": league_id,
         "season_year": season.get("year"),
-        "season_start": season.get("start"),
-        "season_end": season.get("end"),
+        "season_start": _parse_date(season.get("start")),
+        "season_end": _parse_date(season.get("end")),
         "is_current_season": season.get("current"),
         "coverage_fixtures_events": fixtures.get("events"),
         "coverage_fixtures_lineups": fixtures.get("lineups"),

@@ -46,7 +46,7 @@ STANDING_SCHEMA = StructType([
     StructField("away_losses", IntegerType(), True),
     StructField("away_goals_for", IntegerType(), True),
     StructField("away_goals_against", IntegerType(), True),
-    StructField("last_updated", StringType(), True),
+    StructField("last_updated", TimestampType(), True),
     StructField("ingested_at", TimestampType(), True),
 ])
 
@@ -64,6 +64,15 @@ def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
         raise Exception("⚠️ API request limit almost reached — stopping!")
     time.sleep(0.5)
     return response.json()
+
+
+def _parse_ts(val: str):
+    if not val:
+        return None
+    try:
+        return datetime.fromisoformat(val)
+    except (ValueError, TypeError):
+        return None
 
 
 def flatten_standing(
@@ -108,7 +117,7 @@ def flatten_standing(
         "away_losses": away_stats.get("lose"),
         "away_goals_for": away_goals.get("for"),
         "away_goals_against": away_goals.get("against"),
-        "last_updated": record.get("update"),
+        "last_updated": _parse_ts(record.get("update")),
         "ingested_at": datetime.now(tz=timezone.utc),
     }
 
