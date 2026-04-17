@@ -163,7 +163,7 @@ def main():
                       f"{league_id} season {season}...")
                 records = fetch_all_pages(league_id, season)
                 if not records:
-                    print(f"  No players found — skipping")
+                    print("  No players found — skipping")
                     continue
                 players = [flatten_player(r) for r in records]
                 print(f"  Got {len(players)} players")

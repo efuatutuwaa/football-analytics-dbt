@@ -205,7 +205,7 @@ def main():
                 )
                 records = response.get("response", [])
                 if not records:
-                    print(f"  No fixtures found — skipping")
+                    print("  No fixtures found — skipping")
                     continue
                 fixtures = [flatten_fixture(r) for r in records]
                 scores = [

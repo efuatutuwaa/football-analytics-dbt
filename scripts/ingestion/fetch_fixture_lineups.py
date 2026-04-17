@@ -131,8 +131,8 @@ def load_fixture_lineups(lineups: list) -> int:
         """).collect()
     }
     new_lineups = [
-        l for l in lineups
-        if l["fixture_id"] and l["fixture_id"] not in existing_ids
+        ln for ln in lineups
+        if ln["fixture_id"] and ln["fixture_id"] not in existing_ids
     ]
     if not new_lineups:
         return 0

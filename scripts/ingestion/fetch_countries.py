@@ -97,11 +97,10 @@ def load_countries(countries: list) -> int:
 
 
 def main():
-    global requests_made
     print("🌍 Fetching countries...")
     last_ingested_at = get_last_ingested_at(ENDPOINT)
     if last_ingested_at:
-        print(f"  Countries already ingested — skipping")
+        print("  Countries already ingested — skipping")
         return
     try:
         response = fetch_from_api(ENDPOINT)

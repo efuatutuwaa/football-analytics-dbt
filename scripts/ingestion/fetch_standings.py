@@ -172,7 +172,7 @@ def main():
                 )
                 records = response.get("response", [])
                 if not records:
-                    print(f"  No standings found — skipping")
+                    print("  No standings found — skipping")
                     continue
                 all_standings = []
                 for record in records:

@@ -206,7 +206,7 @@ def main():
                 )
                 records = response.get("response", [])
                 if not records:
-                    print(f"  No teams found — skipping")
+                    print("  No teams found — skipping")
                     continue
                 teams = [flatten_team(r) for r in records]
                 venues = [flatten_venue(r) for r in records]
