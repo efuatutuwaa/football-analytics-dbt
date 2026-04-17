@@ -1,6 +1,6 @@
 import time
 import requests
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from config import API_FOOTBALL_KEY as API_KEY
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, LongType, TimestampType, BooleanType
