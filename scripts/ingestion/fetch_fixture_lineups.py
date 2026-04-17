@@ -1,16 +1,8 @@
-import os
 import time
 import requests
 from datetime import datetime, timezone
-from dotenv import load_dotenv
 from pyspark.sql import SparkSession
-
-load_dotenv()
-
-API_KEY = os.getenv("API_FOOTBALL_KEY")
-
-if not API_KEY:
-    raise ValueError("Missing API_FOOTBALL_KEY — check your .env file")
+from config import API_FOOTBALL_KEY as API_KEY
 
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
