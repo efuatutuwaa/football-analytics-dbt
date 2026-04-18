@@ -1,12 +1,10 @@
-import os
 import time
 import requests
 from datetime import datetime, timezone, date
 from pyspark.sql import SparkSession
-
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType, DateType
 
-API_KEY = os.getenv("API_FOOTBALL_KEY")
+API_KEY = dbutils.secrets.get(scope="football", key="api_key")  # noqa: F821
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
 ENDPOINT = "transfers"
