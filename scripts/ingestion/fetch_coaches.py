@@ -59,7 +59,7 @@ def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
 def get_team_ids() -> list:
     result = spark.sql("""
         SELECT DISTINCT team_id
-        FROM workspace.football_raw.raw_teams
+        FROM efua_data_platform.football_raw.raw_teams
         ORDER BY team_id
     """).collect()
     return [row[0] for row in result]
@@ -116,7 +116,7 @@ def get_last_ingested_at(endpoint: str, entity_id: int = None):
         if entity_id:
             result = spark.sql(f"""
                 SELECT last_ingested_at
-                FROM workspace.football_raw.ingestion_metadata
+                FROM efua_data_platform.football_raw.ingestion_metadata
                 WHERE endpoint = '{endpoint}'
                 AND entity_id = {entity_id}
                 AND status IN ('success', 'skipped')
@@ -125,7 +125,7 @@ def get_last_ingested_at(endpoint: str, entity_id: int = None):
         else:
             result = spark.sql(f"""
                 SELECT last_ingested_at
-                FROM workspace.football_raw.ingestion_metadata
+                FROM efua_data_platform.football_raw.ingestion_metadata
                 WHERE endpoint = '{endpoint}'
                 AND status IN ('success', 'skipped')
                 ORDER BY last_ingested_at DESC LIMIT 1
@@ -142,7 +142,7 @@ def update_metadata(
     now = datetime.now(tz=timezone.utc)
     entity_val = str(entity_id) if entity_id else "NULL"
     spark.sql(f"""
-        INSERT INTO workspace.football_raw.ingestion_metadata
+        INSERT INTO efua_data_platform.football_raw.ingestion_metadata
         (endpoint, entity_id, last_ingested_at, rows_inserted,
          requests_used, status, created_at)
         VALUES (
@@ -158,7 +158,7 @@ def load_coaches(coaches: list) -> int:
         return 0
     existing_ids = {
         row[0] for row in spark.sql("""
-            SELECT coach_id FROM workspace.football_raw.raw_coaches
+            SELECT coach_id FROM efua_data_platform.football_raw.raw_coaches
         """).collect()
     }
     new_coaches = [
@@ -169,7 +169,7 @@ def load_coaches(coaches: list) -> int:
         return 0
     df = spark.createDataFrame(new_coaches, schema=COACH_SCHEMA)
     df.write.mode("append").saveAsTable(
-        "workspace.football_raw.raw_coaches"
+        "efua_data_platform.football_raw.raw_coaches"
     )
     return len(new_coaches)
 
@@ -180,7 +180,7 @@ def load_coach_careers(careers: list) -> int:
     existing_combos = {
         (row[0], row[1], str(row[2])) for row in spark.sql("""
             SELECT coach_id, team_id, start_date
-            FROM workspace.football_raw.raw_coach_careers
+            FROM efua_data_platform.football_raw.raw_coach_careers
         """).collect()
     }
     new_careers = [
@@ -192,7 +192,7 @@ def load_coach_careers(careers: list) -> int:
         return 0
     df = spark.createDataFrame(new_careers, schema=COACH_CAREER_SCHEMA)
     df.write.mode("append").saveAsTable(
-        "workspace.football_raw.raw_coach_careers"
+        "efua_data_platform.football_raw.raw_coach_careers"
     )
     return len(new_careers)
 
@@ -200,7 +200,7 @@ def load_coach_careers(careers: list) -> int:
 def log_skipped_team(team_id: int):
     now = datetime.now(tz=timezone.utc)
     spark.sql(f"""
-        INSERT INTO workspace.football_raw.ingestion_metadata
+        INSERT INTO efua_data_platform.football_raw.ingestion_metadata
         (endpoint, entity_id, last_ingested_at, rows_inserted,
          requests_used, status, created_at)
         VALUES (

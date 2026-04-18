@@ -104,7 +104,7 @@ def get_last_ingested_at(endpoint: str, entity_id: int = None):
         if entity_id:
             result = spark.sql(f"""
                 SELECT last_ingested_at
-                FROM workspace.football_raw.ingestion_metadata
+                FROM efua_data_platform.football_raw.ingestion_metadata
                 WHERE endpoint = '{endpoint}'
                 AND entity_id = {entity_id}
                 AND status IN ('success', 'skipped')
@@ -113,7 +113,7 @@ def get_last_ingested_at(endpoint: str, entity_id: int = None):
         else:
             result = spark.sql(f"""
                 SELECT last_ingested_at
-                FROM workspace.football_raw.ingestion_metadata
+                FROM efua_data_platform.football_raw.ingestion_metadata
                 WHERE endpoint = '{endpoint}'
                 AND status IN ('success', 'skipped')
                 ORDER BY last_ingested_at DESC LIMIT 1
@@ -130,7 +130,7 @@ def update_metadata(
     now = datetime.now(tz=timezone.utc)
     entity_val = str(entity_id) if entity_id else "NULL"
     spark.sql(f"""
-        INSERT INTO workspace.football_raw.ingestion_metadata
+        INSERT INTO efua_data_platform.football_raw.ingestion_metadata
         (endpoint, entity_id, last_ingested_at, rows_inserted,
          requests_used, status, created_at)
         VALUES (
@@ -146,7 +146,7 @@ def load_teams(teams: list) -> int:
         return 0
     existing_ids = {
         row[0] for row in spark.sql("""
-            SELECT team_id FROM workspace.football_raw.raw_teams
+            SELECT team_id FROM efua_data_platform.football_raw.raw_teams
         """).collect()
     }
     new_teams = [
@@ -157,7 +157,7 @@ def load_teams(teams: list) -> int:
         return 0
     df = spark.createDataFrame(new_teams, schema=TEAM_SCHEMA)
     df.write.mode("append").saveAsTable(
-        "workspace.football_raw.raw_teams"
+        "efua_data_platform.football_raw.raw_teams"
     )
     return len(new_teams)
 
@@ -167,7 +167,7 @@ def load_venues(venues: list) -> int:
         return 0
     existing_ids = {
         row[0] for row in spark.sql("""
-            SELECT venue_id FROM workspace.football_raw.raw_venues
+            SELECT venue_id FROM efua_data_platform.football_raw.raw_venues
         """).collect()
     }
     new_venues = [
@@ -178,7 +178,7 @@ def load_venues(venues: list) -> int:
         return 0
     df = spark.createDataFrame(new_venues, schema=VENUE_SCHEMA)
     df.write.mode("append").saveAsTable(
-        "workspace.football_raw.raw_venues"
+        "efua_data_platform.football_raw.raw_venues"
     )
     return len(new_venues)
 
@@ -189,7 +189,7 @@ def load_team_seasons(team_seasons: list) -> int:
     existing_combos = {
         (row[0], row[1], row[2]) for row in spark.sql("""
             SELECT team_id, league_id, season_year
-            FROM workspace.football_raw.raw_team_seasons
+            FROM efua_data_platform.football_raw.raw_team_seasons
         """).collect()
     }
     new_seasons = [
@@ -201,7 +201,7 @@ def load_team_seasons(team_seasons: list) -> int:
         return 0
     df = spark.createDataFrame(new_seasons, schema=TEAM_SEASON_SCHEMA)
     df.write.mode("append").saveAsTable(
-        "workspace.football_raw.raw_team_seasons"
+        "efua_data_platform.football_raw.raw_team_seasons"
     )
     return len(new_seasons)
 

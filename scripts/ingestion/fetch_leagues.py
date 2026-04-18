@@ -109,7 +109,7 @@ def get_last_ingested_at(endpoint: str, entity_id: int = None):
         if entity_id:
             result = spark.sql(f"""
                 SELECT last_ingested_at
-                FROM workspace.football_raw.ingestion_metadata
+                FROM efua_data_platform.football_raw.ingestion_metadata
                 WHERE endpoint = '{endpoint}'
                 AND entity_id = {entity_id}
                 AND status IN ('success', 'skipped')
@@ -118,7 +118,7 @@ def get_last_ingested_at(endpoint: str, entity_id: int = None):
         else:
             result = spark.sql(f"""
                 SELECT last_ingested_at
-                FROM workspace.football_raw.ingestion_metadata
+                FROM efua_data_platform.football_raw.ingestion_metadata
                 WHERE endpoint = '{endpoint}'
                 AND status IN ('success', 'skipped')
                 ORDER BY last_ingested_at DESC LIMIT 1
@@ -135,7 +135,7 @@ def update_metadata(
     now = datetime.now(tz=timezone.utc)
     entity_val = str(entity_id) if entity_id else "NULL"
     spark.sql(f"""
-        INSERT INTO workspace.football_raw.ingestion_metadata
+        INSERT INTO efua_data_platform.football_raw.ingestion_metadata
         (endpoint, entity_id, last_ingested_at, rows_inserted,
          requests_used, status, created_at)
         VALUES (
@@ -151,7 +151,7 @@ def load_leagues(leagues: list) -> int:
         return 0
     existing_ids = {
         row[0] for row in spark.sql("""
-            SELECT league_id FROM workspace.football_raw.raw_leagues
+            SELECT league_id FROM efua_data_platform.football_raw.raw_leagues
         """).collect()
     }
     new_leagues = [
@@ -162,7 +162,7 @@ def load_leagues(leagues: list) -> int:
         return 0
     df = spark.createDataFrame(new_leagues, schema=LEAGUE_SCHEMA)
     df.write.mode("append").saveAsTable(
-        "workspace.football_raw.raw_leagues"
+        "efua_data_platform.football_raw.raw_leagues"
     )
     return len(new_leagues)
 
@@ -173,7 +173,7 @@ def load_league_seasons(seasons: list) -> int:
     existing_combos = {
         (row[0], row[1]) for row in spark.sql("""
             SELECT league_id, season_year
-            FROM workspace.football_raw.raw_league_seasons
+            FROM efua_data_platform.football_raw.raw_league_seasons
         """).collect()
     }
     new_seasons = [
@@ -184,7 +184,7 @@ def load_league_seasons(seasons: list) -> int:
         return 0
     df = spark.createDataFrame(new_seasons, schema=LEAGUE_SEASON_SCHEMA)
     df.write.mode("append").saveAsTable(
-        "workspace.football_raw.raw_league_seasons"
+        "efua_data_platform.football_raw.raw_league_seasons"
     )
     return len(new_seasons)
 
