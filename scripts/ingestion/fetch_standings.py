@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
 
-API_KEY = dbutils.secrets.get(scope="football", key="api_key")
+API_KEY = dbutils.secrets.get(scope="football", key="api_key")  # noqa: F821
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
 ENDPOINT = "standings"
