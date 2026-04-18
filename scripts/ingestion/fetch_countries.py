@@ -48,7 +48,7 @@ def get_last_ingested_at(endpoint: str):
     try:
         result = spark.sql(f"""
             SELECT last_ingested_at
-            FROM workspace.football_raw.ingestion_metadata
+            FROM efua_data_platform.football_raw.ingestion_metadata
             WHERE endpoint = '{endpoint}'
             AND status IN ('success', 'skipped')
             ORDER BY last_ingested_at DESC
@@ -62,7 +62,7 @@ def get_last_ingested_at(endpoint: str):
 def update_metadata(endpoint: str, rows_inserted: int, status: str):
     now = datetime.now(tz=timezone.utc)
     spark.sql(f"""
-        INSERT INTO workspace.football_raw.ingestion_metadata
+        INSERT INTO efua_data_platform.football_raw.ingestion_metadata
         (endpoint, entity_id, last_ingested_at, rows_inserted,
          requests_used, status, created_at)
         VALUES (
@@ -79,7 +79,7 @@ def load_countries(countries: list) -> int:
     existing_names = {
         row[0] for row in spark.sql("""
             SELECT country_name
-            FROM workspace.football_raw.raw_countries
+            FROM efua_data_platform.football_raw.raw_countries
         """).collect()
     }
     new_countries = [
@@ -91,7 +91,7 @@ def load_countries(countries: list) -> int:
         return 0
     df = spark.createDataFrame(new_countries, schema=COUNTRY_SCHEMA)
     df.write.mode("append").saveAsTable(
-        "workspace.football_raw.raw_countries"
+        "efua_data_platform.football_raw.raw_countries"
     )
     return len(new_countries)
 

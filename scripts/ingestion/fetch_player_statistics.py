@@ -73,7 +73,7 @@ def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
 def get_fixture_ids(league_id: int, season: int) -> list:
     result = spark.sql(f"""
         SELECT DISTINCT fixture_id
-        FROM workspace.football_raw.raw_fixtures
+        FROM efua_data_platform.football_raw.raw_fixtures
         WHERE league_id = {league_id}
         AND league_season = {season}
         AND status_short = 'FT'
@@ -144,7 +144,7 @@ def get_last_ingested_at(endpoint: str, entity_id: int = None):
         if entity_id:
             result = spark.sql(f"""
                 SELECT last_ingested_at
-                FROM workspace.football_raw.ingestion_metadata
+                FROM efua_data_platform.football_raw.ingestion_metadata
                 WHERE endpoint = '{endpoint}'
                 AND entity_id = {entity_id}
                 AND status IN ('success', 'skipped')
@@ -153,7 +153,7 @@ def get_last_ingested_at(endpoint: str, entity_id: int = None):
         else:
             result = spark.sql(f"""
                 SELECT last_ingested_at
-                FROM workspace.football_raw.ingestion_metadata
+                FROM efua_data_platform.football_raw.ingestion_metadata
                 WHERE endpoint = '{endpoint}'
                 AND status IN ('success', 'skipped')
                 ORDER BY last_ingested_at DESC LIMIT 1
@@ -170,7 +170,7 @@ def update_metadata(
     now = datetime.now(tz=timezone.utc)
     entity_val = str(entity_id) if entity_id else "NULL"
     spark.sql(f"""
-        INSERT INTO workspace.football_raw.ingestion_metadata
+        INSERT INTO efua_data_platform.football_raw.ingestion_metadata
         (endpoint, entity_id, last_ingested_at, rows_inserted,
          requests_used, status, created_at)
         VALUES (
@@ -187,7 +187,7 @@ def load_player_statistics(stats: list) -> int:
     existing_ids = {
         row[0] for row in spark.sql("""
             SELECT DISTINCT fixture_id
-            FROM workspace.football_raw.raw_player_statistics
+            FROM efua_data_platform.football_raw.raw_player_statistics
         """).collect()
     }
     new_stats = [
@@ -198,7 +198,7 @@ def load_player_statistics(stats: list) -> int:
         return 0
     df = spark.createDataFrame(new_stats, schema=PLAYER_STATS_SCHEMA)
     df.write.mode("append").saveAsTable(
-        "workspace.football_raw.raw_player_statistics"
+        "efua_data_platform.football_raw.raw_player_statistics"
     )
     return len(new_stats)
 
@@ -209,7 +209,7 @@ def main():
     try:
         combos = spark.sql("""
             SELECT DISTINCT league_id, league_season
-            FROM workspace.football_raw.raw_fixtures
+            FROM efua_data_platform.football_raw.raw_fixtures
             WHERE status_short = 'FT'
             ORDER BY league_id, league_season
         """).collect()

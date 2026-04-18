@@ -146,7 +146,7 @@ def get_last_ingested_at(endpoint: str, entity_id: int = None):
         if entity_id:
             result = spark.sql(f"""
                 SELECT last_ingested_at
-                FROM workspace.football_raw.ingestion_metadata
+                FROM efua_data_platform.football_raw.ingestion_metadata
                 WHERE endpoint = '{endpoint}'
                 AND entity_id = {entity_id}
                 AND status IN ('success', 'skipped')
@@ -155,7 +155,7 @@ def get_last_ingested_at(endpoint: str, entity_id: int = None):
         else:
             result = spark.sql(f"""
                 SELECT last_ingested_at
-                FROM workspace.football_raw.ingestion_metadata
+                FROM efua_data_platform.football_raw.ingestion_metadata
                 WHERE endpoint = '{endpoint}'
                 AND status IN ('success', 'skipped')
                 ORDER BY last_ingested_at DESC LIMIT 1
@@ -172,7 +172,7 @@ def update_metadata(
     now = datetime.now(tz=timezone.utc)
     entity_val = str(entity_id) if entity_id else "NULL"
     spark.sql(f"""
-        INSERT INTO workspace.football_raw.ingestion_metadata
+        INSERT INTO efua_data_platform.football_raw.ingestion_metadata
         (endpoint, entity_id, last_ingested_at, rows_inserted,
          requests_used, status, created_at)
         VALUES (
@@ -189,7 +189,7 @@ def load_fixtures(fixtures: list) -> int:
     existing_ids = {
         row[0] for row in spark.sql("""
             SELECT fixture_id
-            FROM workspace.football_raw.raw_fixtures
+            FROM efua_data_platform.football_raw.raw_fixtures
         """).collect()
     }
     new_fixtures = [
@@ -200,7 +200,7 @@ def load_fixtures(fixtures: list) -> int:
         return 0
     df = spark.createDataFrame(new_fixtures, schema=FIXTURE_SCHEMA)
     df.write.mode("append").saveAsTable(
-        "workspace.football_raw.raw_fixtures"
+        "efua_data_platform.football_raw.raw_fixtures"
     )
     return len(new_fixtures)
 
@@ -211,7 +211,7 @@ def load_fixture_scores(scores: list) -> int:
     existing_ids = {
         row[0] for row in spark.sql("""
             SELECT fixture_id
-            FROM workspace.football_raw.raw_fixture_scores
+            FROM efua_data_platform.football_raw.raw_fixture_scores
         """).collect()
     }
     new_scores = [
@@ -222,7 +222,7 @@ def load_fixture_scores(scores: list) -> int:
         return 0
     df = spark.createDataFrame(new_scores, schema=SCORE_SCHEMA)
     df.write.mode("append").saveAsTable(
-        "workspace.football_raw.raw_fixture_scores"
+        "efua_data_platform.football_raw.raw_fixture_scores"
     )
     return len(new_scores)
 
