@@ -1,10 +1,12 @@
+import os
 import time
 import requests
 from datetime import datetime, timezone, date
 from pyspark.sql import SparkSession
-from config import API_FOOTBALL_KEY as API_KEY
+
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType, BooleanType, DateType
 
+API_KEY = os.getenv("API_FOOTBALL_KEY")
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
 ENDPOINT = "leagues"
