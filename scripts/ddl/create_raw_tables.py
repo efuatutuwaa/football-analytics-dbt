@@ -1,16 +1,6 @@
-import os
-from dotenv import load_dotenv
-from databricks import sql
+from pyspark.sql import SparkSession
 
-# ── Config ────────────────────────────────────────────────
-load_dotenv()
-
-DATABRICKS_HOST = os.getenv("DATABRICKS_HOST")
-DATABRICKS_HTTP_PATH = os.getenv("DATABRICKS_HTTP_PATH")
-DATABRICKS_TOKEN = os.getenv("DATABRICKS_TOKEN")
-
-if not all([DATABRICKS_HOST, DATABRICKS_HTTP_PATH, DATABRICKS_TOKEN]):
-    raise ValueError("Missing one or more Databricks env vars — check your .env file")
+spark = SparkSession.builder.getOrCreate()
 
 # ── DDL Statements ────────────────────────────────────────
 DDL_STATEMENTS = [
@@ -407,31 +397,24 @@ DDL_STATEMENTS = [
 def create_tables():
     print("🏈 Creating football_raw tables...")
 
-    with sql.connect(
-        server_hostname=DATABRICKS_HOST,
-        http_path=DATABRICKS_HTTP_PATH,
-        access_token=DATABRICKS_TOKEN,
-        catalog="workspace"
-    ) as connection:
-        with connection.cursor() as cursor:
-            for statement in DDL_STATEMENTS:
-                if not statement.strip():
-                    continue
+    for statement in DDL_STATEMENTS:
+        if not statement.strip():
+            continue
 
-                if "CREATE SCHEMA" in statement:
-                    label = "schema: football_raw"
-                elif "CREATE TABLE" in statement:
-                    label = [
-                        line.strip()
-                        for line in statement.split("\n")
-                        if "CREATE TABLE" in line
-                    ][0].split(".")[-1].split(" ")[0]
-                else:
-                    label = "unknown"
+        if "CREATE SCHEMA" in statement:
+            label = "schema: football_raw"
+        elif "CREATE TABLE" in statement:
+            label = [
+                line.strip()
+                for line in statement.split("\n")
+                if "CREATE TABLE" in line
+            ][0].split(".")[-1].split(" ")[0]
+        else:
+            label = "unknown"
 
-                print(f"  Creating {label}...")
-                cursor.execute(statement)
-                print(f"  ✅ {label} created")
+        print(f"  Creating {label}...")
+        spark.sql(statement)
+        print(f"  ✅ {label} created")
 
     print("🎉 All tables created successfully!")
 
