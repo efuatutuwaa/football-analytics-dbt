@@ -2,9 +2,13 @@ import time
 import requests
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType, BooleanType
+from pyspark.sql.types import (
+    StructType, StructField, StringType,
+    IntegerType, BooleanType, TimestampType
+)
 
 API_KEY = dbutils.secrets.get(scope="football", key="api_key")  # noqa: F821
+
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
 ENDPOINT = "teams"
@@ -15,34 +19,13 @@ SEASONS = list(range(2020, datetime.now().year + 1))
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
 
-TEAM_SCHEMA = StructType([
-    StructField("team_id", IntegerType(), True),
-    StructField("team_name", StringType(), True),
-    StructField("team_code", StringType(), True),
-    StructField("team_country", StringType(), True),
-    StructField("founded_year", IntegerType(), True),
-    StructField("is_national_team", BooleanType(), True),
-    StructField("team_logo_url", StringType(), True),
-    StructField("ingested_at", TimestampType(), True),
-])
 
-VENUE_SCHEMA = StructType([
-    StructField("venue_id", IntegerType(), True),
-    StructField("venue_name", StringType(), True),
-    StructField("venue_address", StringType(), True),
-    StructField("venue_city", StringType(), True),
-    StructField("venue_capacity", IntegerType(), True),
-    StructField("venue_surface", StringType(), True),
-    StructField("venue_image_url", StringType(), True),
-    StructField("ingested_at", TimestampType(), True),
-])
-
-TEAM_SEASON_SCHEMA = StructType([
-    StructField("team_id", IntegerType(), True),
-    StructField("league_id", IntegerType(), True),
-    StructField("season_year", IntegerType(), True),
-    StructField("ingested_at", TimestampType(), True),
-])
+def should_refetch(endpoint: str, league_id: int, season: int) -> bool:
+    last_ingested = get_last_ingested_at(f"{endpoint}_{season}", league_id)
+    if not last_ingested:
+        return True
+    days_since = (datetime.now(tz=timezone.utc) - last_ingested).days
+    return days_since >= 365
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
@@ -89,7 +72,9 @@ def flatten_venue(record: dict) -> dict:
 
 
 def flatten_team_season(
-    team_id: int, league_id: int, season: int
+    team_id: int,
+    league_id: int,
+    season: int
 ) -> dict:
     return {
         "team_id": team_id,
@@ -146,7 +131,8 @@ def load_teams(teams: list) -> int:
         return 0
     existing_ids = {
         row[0] for row in spark.sql("""
-            SELECT team_id FROM efua_data_platform.football_raw.raw_teams
+            SELECT team_id
+            FROM efua_data_platform.football_raw.raw_teams
         """).collect()
     }
     new_teams = [
@@ -155,7 +141,17 @@ def load_teams(teams: list) -> int:
     ]
     if not new_teams:
         return 0
-    df = spark.createDataFrame(new_teams, schema=TEAM_SCHEMA)
+    schema = StructType([
+        StructField("team_id", IntegerType(), True),
+        StructField("team_name", StringType(), True),
+        StructField("team_code", StringType(), True),
+        StructField("team_country", StringType(), True),
+        StructField("founded_year", IntegerType(), True),
+        StructField("is_national_team", BooleanType(), True),
+        StructField("team_logo_url", StringType(), True),
+        StructField("ingested_at", TimestampType(), True),
+    ])
+    df = spark.createDataFrame(new_teams, schema=schema)
     df.write.mode("append").saveAsTable(
         "efua_data_platform.football_raw.raw_teams"
     )
@@ -167,7 +163,8 @@ def load_venues(venues: list) -> int:
         return 0
     existing_ids = {
         row[0] for row in spark.sql("""
-            SELECT venue_id FROM efua_data_platform.football_raw.raw_venues
+            SELECT venue_id
+            FROM efua_data_platform.football_raw.raw_venues
         """).collect()
     }
     new_venues = [
@@ -176,7 +173,17 @@ def load_venues(venues: list) -> int:
     ]
     if not new_venues:
         return 0
-    df = spark.createDataFrame(new_venues, schema=VENUE_SCHEMA)
+    schema = StructType([
+        StructField("venue_id", IntegerType(), True),
+        StructField("venue_name", StringType(), True),
+        StructField("venue_address", StringType(), True),
+        StructField("venue_city", StringType(), True),
+        StructField("venue_capacity", IntegerType(), True),
+        StructField("venue_surface", StringType(), True),
+        StructField("venue_image_url", StringType(), True),
+        StructField("ingested_at", TimestampType(), True),
+    ])
+    df = spark.createDataFrame(new_venues, schema=schema)
     df.write.mode("append").saveAsTable(
         "efua_data_platform.football_raw.raw_venues"
     )
@@ -199,7 +206,13 @@ def load_team_seasons(team_seasons: list) -> int:
     ]
     if not new_seasons:
         return 0
-    df = spark.createDataFrame(new_seasons, schema=TEAM_SEASON_SCHEMA)
+    schema = StructType([
+        StructField("team_id", IntegerType(), True),
+        StructField("league_id", IntegerType(), True),
+        StructField("season_year", IntegerType(), True),
+        StructField("ingested_at", TimestampType(), True),
+    ])
+    df = spark.createDataFrame(new_seasons, schema=schema)
     df.write.mode("append").saveAsTable(
         "efua_data_platform.football_raw.raw_team_seasons"
     )
@@ -209,27 +222,33 @@ def load_team_seasons(team_seasons: list) -> int:
 def main():
     global requests_made
     print("⚽ Fetching teams...")
+
     try:
         for league_id in LEAGUE_IDS:
             for season in SEASONS:
                 requests_made = 0
-                last_ingested_at = get_last_ingested_at(
-                    f"{ENDPOINT}_{season}", league_id
-                )
-                if last_ingested_at:
-                    print(f"  League {league_id} season {season} "
-                          f"already ingested — skipping")
+
+                if not should_refetch(ENDPOINT, league_id, season):
+                    print(
+                        f"  League {league_id} season {season} "
+                        f"recently fetched — skipping"
+                    )
                     continue
-                print(f"\n  Fetching teams for league "
-                      f"{league_id} season {season}...")
+
+                print(
+                    f"\n  Fetching teams for league "
+                    f"{league_id} season {season}..."
+                )
                 response = fetch_from_api(
                     ENDPOINT,
                     params={"league": league_id, "season": season}
                 )
                 records = response.get("response", [])
+
                 if not records:
                     print("  No teams found — skipping")
                     continue
+
                 teams = [flatten_team(r) for r in records]
                 venues = [flatten_venue(r) for r in records]
                 team_seasons = [
@@ -238,18 +257,24 @@ def main():
                     )
                     for r in records
                 ]
+
                 team_rows = load_teams(teams)
                 venue_rows = load_venues(venues)
                 season_rows = load_team_seasons(team_seasons)
+
                 print(f"  ✅ Loaded {team_rows} new teams")
                 print(f"  ✅ Loaded {venue_rows} new venues")
                 print(f"  ✅ Loaded {season_rows} team season records")
+
                 update_metadata(
                     f"{ENDPOINT}_{season}",
                     team_rows + venue_rows + season_rows,
-                    "success", league_id
+                    "success",
+                    league_id
                 )
+
         print("\n🎉 Teams ingestion complete!")
+
     except Exception as e:
         print(f"❌ Error: {e}")
         raise

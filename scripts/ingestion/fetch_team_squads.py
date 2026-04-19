@@ -17,27 +17,37 @@ spark = SparkSession.builder.getOrCreate()
 requests_made = 0
 
 
-# ── API Fetcher ───────────────────────────────────────────
+def is_transfer_window() -> bool:
+    month = datetime.now().month
+    return month in [1, 2, 6, 7, 8]
+
+
+def should_refetch_squad(team_id: int) -> bool:
+    last_ingested = get_last_ingested_at(ENDPOINT, team_id)
+    if not last_ingested:
+        return True
+    days_since = (datetime.now(tz=timezone.utc) - last_ingested).days
+    if is_transfer_window():
+        return days_since >= 7
+    else:
+        return days_since >= 90
+
+
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
     global requests_made
-
     url = f"{API_BASE_URL}/{endpoint}"
     response = requests.get(url, headers=HEADERS, params=params)
     response.raise_for_status()
     requests_made += 1
-
     remaining = response.headers.get("x-ratelimit-requests-remaining")
     limit = response.headers.get("x-ratelimit-requests-limit")
     print(f"  API requests remaining: {remaining}/{limit}")
-
     if remaining and int(remaining) < 100:
         raise Exception("⚠️ API request limit almost reached — stopping!")
-
     time.sleep(0.5)
     return response.json()
 
 
-# ── Get team IDs ──────────────────────────────────────────
 def get_team_ids() -> list:
     result = spark.sql("""
         SELECT DISTINCT team_id
@@ -47,7 +57,6 @@ def get_team_ids() -> list:
     return [row[0] for row in result]
 
 
-# ── Flatten squad player ──────────────────────────────────
 def flatten_squad_player(
     team_id: int,
     team_name: str,
@@ -66,7 +75,6 @@ def flatten_squad_player(
     }
 
 
-# ── Incremental check ─────────────────────────────────────
 def get_last_ingested_at(endpoint: str, entity_id: int = None):
     try:
         if entity_id:
@@ -76,8 +84,7 @@ def get_last_ingested_at(endpoint: str, entity_id: int = None):
                 WHERE endpoint = '{endpoint}'
                 AND entity_id = {entity_id}
                 AND status IN ('success', 'skipped')
-                ORDER BY last_ingested_at DESC
-                LIMIT 1
+                ORDER BY last_ingested_at DESC LIMIT 1
             """).collect()
         else:
             result = spark.sql(f"""
@@ -85,62 +92,48 @@ def get_last_ingested_at(endpoint: str, entity_id: int = None):
                 FROM efua_data_platform.football_raw.ingestion_metadata
                 WHERE endpoint = '{endpoint}'
                 AND status IN ('success', 'skipped')
-                ORDER BY last_ingested_at DESC
-                LIMIT 1
+                ORDER BY last_ingested_at DESC LIMIT 1
             """).collect()
         return result[0][0] if result else None
     except Exception:
         return None
 
 
-# ── Update metadata ───────────────────────────────────────
 def update_metadata(
-    endpoint: str,
-    rows_inserted: int,
-    status: str,
-    entity_id: int = None
+    endpoint: str, rows_inserted: int,
+    status: str, entity_id: int = None
 ):
     now = datetime.now(tz=timezone.utc)
     entity_val = str(entity_id) if entity_id else "NULL"
-
     spark.sql(f"""
         INSERT INTO efua_data_platform.football_raw.ingestion_metadata
         (endpoint, entity_id, last_ingested_at, rows_inserted,
          requests_used, status, created_at)
         VALUES (
-            '{endpoint}',
-            {entity_val},
-            '{now.isoformat()}',
-            {rows_inserted},
-            {requests_made},
-            '{status}',
+            '{endpoint}', {entity_val}, '{now.isoformat()}',
+            {rows_inserted}, {requests_made}, '{status}',
             '{now.isoformat()}'
         )
     """)
 
 
-# ── Load squad players ────────────────────────────────────
 def load_squad_players(players: list) -> int:
     if not players:
         return 0
-
-    # fetch existing team IDs in squads table
-    existing_ids = {
-        row[0] for row in spark.sql("""
-            SELECT DISTINCT team_id
+    existing_combos = {
+        (row[0], row[1])
+        for row in spark.sql("""
+            SELECT team_id, player_id
             FROM efua_data_platform.football_raw.raw_team_squads
         """).collect()
     }
-
     new_players = [
         p for p in players
-        if p["team_id"] and p["team_id"] not in existing_ids
+        if (p["team_id"], p["player_id"]) not in existing_combos
     ]
-
     if not new_players:
         print("  No new squad players to load")
         return 0
-
     schema = StructType([
         StructField("team_id", IntegerType(), True),
         StructField("team_name", StringType(), True),
@@ -152,7 +145,6 @@ def load_squad_players(players: list) -> int:
         StructField("photo_url", StringType(), True),
         StructField("ingested_at", TimestampType(), True),
     ])
-
     df = spark.createDataFrame(new_players, schema=schema)
     df.write.mode("append").saveAsTable(
         "efua_data_platform.football_raw.raw_team_squads"
@@ -160,7 +152,6 @@ def load_squad_players(players: list) -> int:
     return len(new_players)
 
 
-# ── Log skipped team ──────────────────────────────────────
 def log_skipped_team(team_id: int):
     now = datetime.now(tz=timezone.utc)
     spark.sql(f"""
@@ -168,36 +159,27 @@ def log_skipped_team(team_id: int):
         (endpoint, entity_id, last_ingested_at, rows_inserted,
          requests_used, status, created_at)
         VALUES (
-            '{ENDPOINT}',
-            {team_id},
-            '{now.isoformat()}',
-            0,
-            {requests_made},
-            'skipped',
-            '{now.isoformat()}'
+            '{ENDPOINT}', {team_id}, '{now.isoformat()}',
+            0, {requests_made}, 'skipped', '{now.isoformat()}'
         )
     """)
 
 
-# ── Main ──────────────────────────────────────────────────
 def main():
     global requests_made
     print("👥 Fetching team squads...")
 
     team_ids = get_team_ids()
-    print(f"  Found {len(team_ids)} unique teams")
+    in_window = is_transfer_window()
+    print(f"  Found {len(team_ids)} teams")
+    print(f"  Transfer window active: {in_window}")
 
     try:
         for team_id in team_ids:
             requests_made = 0
 
-            # ── incremental check before API call ──
-            last_ingested_at = get_last_ingested_at(
-                ENDPOINT, team_id
-            )
-
-            if last_ingested_at:
-                print(f"  Team {team_id} already processed — skipping")
+            if not should_refetch_squad(team_id):
+                print(f"  Team {team_id} recently checked — skipping")
                 continue
 
             response = fetch_from_api(
@@ -208,19 +190,17 @@ def main():
 
             if not records:
                 print(
-                    f"  No squad found for team {team_id} "
+                    f"  No squad for team {team_id} "
                     f"— logging as skipped"
                 )
                 log_skipped_team(team_id)
                 continue
 
             all_players = []
-
             for record in records:
                 team = record.get("team", {})
                 tid = team.get("id")
                 tname = team.get("name")
-
                 for player in record.get("players", []):
                     all_players.append(
                         flatten_squad_player(tid, tname, player)
@@ -230,10 +210,8 @@ def main():
             print(f"  Team {team_id}: ✅ {squad_rows} squad players")
 
             update_metadata(
-                ENDPOINT,
-                squad_rows,
-                "success",
-                team_id
+                ENDPOINT, squad_rows,
+                "success", team_id
             )
 
         print("\n🎉 Team squads ingestion complete!")

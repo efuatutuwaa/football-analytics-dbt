@@ -1,10 +1,14 @@
 import time
 import requests
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone
 from pyspark.sql import SparkSession
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType, DateType
+from pyspark.sql.types import (
+    StructType, StructField, StringType,
+    IntegerType, DateType, TimestampType
+)
 
 API_KEY = dbutils.secrets.get(scope="football", key="api_key")  # noqa: F821
+
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
 ENDPOINT = "players"
@@ -15,21 +19,13 @@ SEASONS = list(range(2020, datetime.now().year + 1))
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
 
-PLAYER_SCHEMA = StructType([
-    StructField("player_id", IntegerType(), True),
-    StructField("player_name", StringType(), True),
-    StructField("firstname", StringType(), True),
-    StructField("lastname", StringType(), True),
-    StructField("age", IntegerType(), True),
-    StructField("birth_date", DateType(), True),
-    StructField("birth_place", StringType(), True),
-    StructField("birth_country", StringType(), True),
-    StructField("nationality", StringType(), True),
-    StructField("height", StringType(), True),
-    StructField("weight", StringType(), True),
-    StructField("photo_url", StringType(), True),
-    StructField("ingested_at", TimestampType(), True),
-])
+
+def should_refetch(endpoint: str, league_id: int, season: int) -> bool:
+    last_ingested = get_last_ingested_at(f"{endpoint}_{season}", league_id)
+    if not last_ingested:
+        return True
+    days_since = (datetime.now(tz=timezone.utc) - last_ingested).days
+    return days_since >= 365
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
@@ -70,25 +66,23 @@ def fetch_all_pages(league_id: int, season: int) -> list:
     return all_records
 
 
-def _parse_date(val: str):
-    if not val:
-        return None
-    try:
-        return date.fromisoformat(val)
-    except (ValueError, TypeError):
-        return None
-
-
 def flatten_player(record: dict) -> dict:
     player = record.get("player", {})
     birth = player.get("birth", {})
+    birth_date_str = birth.get("date")
+    birth_date = None
+    if birth_date_str:
+        try:
+            birth_date = datetime.strptime(birth_date_str, "%Y-%m-%d").date()
+        except Exception:
+            birth_date = None
     return {
         "player_id": player.get("id"),
         "player_name": player.get("name"),
         "firstname": player.get("firstname"),
         "lastname": player.get("lastname"),
         "age": player.get("age"),
-        "birth_date": _parse_date(birth.get("date")),
+        "birth_date": birth_date,
         "birth_place": birth.get("place"),
         "birth_country": birth.get("country"),
         "nationality": player.get("nationality"),
@@ -146,7 +140,8 @@ def load_players(players: list) -> int:
         return 0
     existing_ids = {
         row[0] for row in spark.sql("""
-            SELECT player_id FROM efua_data_platform.football_raw.raw_players
+            SELECT player_id
+            FROM efua_data_platform.football_raw.raw_players
         """).collect()
     }
     new_players = [
@@ -156,7 +151,22 @@ def load_players(players: list) -> int:
     if not new_players:
         print("  No new players to load")
         return 0
-    df = spark.createDataFrame(new_players, schema=PLAYER_SCHEMA)
+    schema = StructType([
+        StructField("player_id", IntegerType(), True),
+        StructField("player_name", StringType(), True),
+        StructField("firstname", StringType(), True),
+        StructField("lastname", StringType(), True),
+        StructField("age", IntegerType(), True),
+        StructField("birth_date", DateType(), True),
+        StructField("birth_place", StringType(), True),
+        StructField("birth_country", StringType(), True),
+        StructField("nationality", StringType(), True),
+        StructField("height", StringType(), True),
+        StructField("weight", StringType(), True),
+        StructField("photo_url", StringType(), True),
+        StructField("ingested_at", TimestampType(), True),
+    ])
+    df = spark.createDataFrame(new_players, schema=schema)
     df.write.mode("append").saveAsTable(
         "efua_data_platform.football_raw.raw_players"
     )
@@ -166,32 +176,44 @@ def load_players(players: list) -> int:
 def main():
     global requests_made
     print("👤 Fetching players...")
+
     try:
         for league_id in LEAGUE_IDS:
             for season in SEASONS:
                 requests_made = 0
-                last_ingested_at = get_last_ingested_at(
-                    f"{ENDPOINT}_{season}", league_id
-                )
-                if last_ingested_at:
-                    print(f"  League {league_id} season {season} "
-                          f"already ingested — skipping")
+
+                if not should_refetch(ENDPOINT, league_id, season):
+                    print(
+                        f"  League {league_id} season {season} "
+                        f"recently fetched — skipping"
+                    )
                     continue
-                print(f"\n  Fetching players for league "
-                      f"{league_id} season {season}...")
+
+                print(
+                    f"\n  Fetching players for league "
+                    f"{league_id} season {season}..."
+                )
                 records = fetch_all_pages(league_id, season)
+
                 if not records:
                     print("  No players found — skipping")
                     continue
+
                 players = [flatten_player(r) for r in records]
                 print(f"  Got {len(players)} players")
+
                 player_rows = load_players(players)
                 print(f"  ✅ Loaded {player_rows} new players")
+
                 update_metadata(
                     f"{ENDPOINT}_{season}",
-                    player_rows, "success", league_id
+                    player_rows,
+                    "success",
+                    league_id
                 )
+
         print("\n🎉 Players ingestion complete!")
+
     except Exception as e:
         print(f"❌ Error: {e}")
         raise
