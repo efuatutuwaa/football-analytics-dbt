@@ -24,7 +24,7 @@ def should_refetch(endpoint: str, league_id: int, season: int) -> bool:
     last_ingested = get_last_ingested_at(f"{endpoint}_{season}", league_id)
     if not last_ingested:
         return True
-    days_since = (datetime.now(tz=timezone.utc) - last_ingested).days
+    days_since = (datetime.now(tz=timezone.utc) - last_ingested.replace(tzinfo=timezone.utc)).days
     return days_since >= 365
 
 
