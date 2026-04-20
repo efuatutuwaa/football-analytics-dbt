@@ -22,20 +22,6 @@ def is_transfer_window() -> bool:
     return month in [1, 2, 6, 7, 8]
 
 
-def get_player_tier(player_id: int) -> str:
-    try:
-        result = spark.sql(f"""
-            SELECT COUNT(*) as match_count
-            FROM efua_data_platform.football_raw.raw_player_statistics
-            WHERE player_id = {player_id}
-            AND ingested_at >= CURRENT_DATE - 30
-        """).collect()
-        match_count = result[0][0] if result else 0
-        return "active" if match_count > 0 else "inactive"
-    except Exception:
-        return "inactive"
-
-
 def get_active_player_ids() -> set:
     result = spark.sql("""
         SELECT DISTINCT player_id
@@ -45,16 +31,34 @@ def get_active_player_ids() -> set:
     return {row[0] for row in result}
 
 
-def should_refetch(player_id: int) -> bool:
-    last_ingested = get_last_ingested_at(ENDPOINT, player_id)
-    if not last_ingested:
-        return True
-    days_since = (datetime.now(tz=timezone.utc) - last_ingested.replace(tzinfo=timezone.utc)).days
-    tier = get_player_tier(player_id)
-    if is_transfer_window():
-        return days_since >= 7 if tier == "active" else days_since >= 30
-    else:
-        return days_since >= 30 if tier == "active" else days_since >= 90
+def get_players_to_skip(in_window: bool) -> set:
+    active_threshold = 7 if in_window else 30
+    inactive_threshold = 30 if in_window else 90
+    result = spark.sql(f"""
+        WITH latest_ingestion AS (
+            SELECT entity_id, MAX(last_ingested_at) AS last_ingested_at
+            FROM efua_data_platform.football_raw.ingestion_metadata
+            WHERE endpoint = '{ENDPOINT}'
+            AND status IN ('success', 'skipped')
+            GROUP BY entity_id
+        ),
+        recently_active AS (
+            SELECT DISTINCT player_id
+            FROM efua_data_platform.football_raw.raw_player_statistics
+            WHERE ingested_at >= CURRENT_DATE - 30
+        )
+        SELECT li.entity_id
+        FROM latest_ingestion li
+        LEFT JOIN recently_active ra ON li.entity_id = ra.player_id
+        WHERE (
+            ra.player_id IS NOT NULL
+            AND li.last_ingested_at >= CURRENT_TIMESTAMP - INTERVAL {active_threshold} DAYS
+        ) OR (
+            ra.player_id IS NULL
+            AND li.last_ingested_at >= CURRENT_TIMESTAMP - INTERVAL {inactive_threshold} DAYS
+        )
+    """).collect()
+    return {row[0] for row in result}
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
@@ -221,10 +225,12 @@ def main():
     player_ids = get_player_ids()
     active_ids = get_active_player_ids()
     in_window = is_transfer_window()
+    players_to_skip = get_players_to_skip(in_window)
 
     print(f"  Total players: {len(player_ids)}")
     print(f"  Active players: {len(active_ids)}")
     print(f"  Transfer window active: {in_window}")
+    print(f"  Players to skip (recently fetched): {len(players_to_skip)}")
 
     try:
         for player_id in player_ids:
@@ -234,7 +240,7 @@ def main():
                 log_skipped_player(player_id)
                 continue
 
-            if not should_refetch(player_id):
+            if player_id in players_to_skip:
                 print(f"  Player {player_id} recently checked — skipping")
                 continue
 
