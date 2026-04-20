@@ -26,7 +26,7 @@ def should_refetch_coach(team_id: int) -> bool:
     last_ingested = get_last_ingested_at(ENDPOINT, team_id)
     if not last_ingested:
         return True
-    days_since = (datetime.now(tz=timezone.utc) - last_ingested).days
+    days_since = (datetime.now(tz=timezone.utc) - last_ingested.replace(tzinfo=timezone.utc)).days
     if is_transfer_window():
         return days_since >= 7
     else:

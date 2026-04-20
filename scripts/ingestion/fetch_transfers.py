@@ -49,7 +49,7 @@ def should_refetch(player_id: int) -> bool:
     last_ingested = get_last_ingested_at(ENDPOINT, player_id)
     if not last_ingested:
         return True
-    days_since = (datetime.now(tz=timezone.utc) - last_ingested).days
+    days_since = (datetime.now(tz=timezone.utc) - last_ingested.replace(tzinfo=timezone.utc)).days
     tier = get_player_tier(player_id)
     if is_transfer_window():
         return days_since >= 7 if tier == "active" else days_since >= 30
