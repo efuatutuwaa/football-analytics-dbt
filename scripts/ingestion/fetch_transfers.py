@@ -152,7 +152,6 @@ def flatten_transfer(
     }
 
 
-
 def update_metadata(
     endpoint: str, rows_inserted: int,
     status: str, entity_id: int = None
