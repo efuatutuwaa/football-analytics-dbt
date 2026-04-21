@@ -128,6 +128,17 @@ def get_last_ingested_at(endpoint: str, entity_id: int = None):
         return None
 
 
+def should_refetch_league(league_id: int) -> bool:
+    last_ingested = get_last_ingested_at(ENDPOINT, league_id)
+    if not last_ingested:
+        return True
+    days_since = (
+        datetime.now(tz=timezone.utc)
+        - last_ingested.replace(tzinfo=timezone.utc)
+    ).days
+    return days_since >= 365
+
+
 def update_metadata(
     endpoint: str, rows_inserted: int,
     status: str, entity_id: int = None
@@ -195,9 +206,8 @@ def main():
     try:
         for league_id in LEAGUE_IDS:
             requests_made = 0
-            last_ingested_at = get_last_ingested_at(ENDPOINT, league_id)
-            if last_ingested_at:
-                print(f"  League {league_id} already ingested — skipping")
+            if not should_refetch_league(league_id):
+                print(f"  League {league_id} recently fetched — skipping")
                 continue
             print(f"\n  Fetching league {league_id}...")
             response = fetch_from_api(ENDPOINT, params={"id": league_id})

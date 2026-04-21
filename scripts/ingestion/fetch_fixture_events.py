@@ -56,6 +56,17 @@ def get_fixture_ids(league_id: int, season: int) -> list:
     return [row[0] for row in result]
 
 
+def get_ingested_fixture_ids() -> set:
+    try:
+        result = spark.sql("""
+            SELECT DISTINCT fixture_id
+            FROM efua_data_platform.football_raw.raw_fixture_events
+        """).collect()
+        return {row[0] for row in result}
+    except Exception:
+        return set()
+
+
 def flatten_fixture_event(fixture_id: int, record: dict) -> dict:
     time_info = record.get("time", {})
     team = record.get("team", {})
@@ -76,30 +87,6 @@ def flatten_fixture_event(fixture_id: int, record: dict) -> dict:
         "comments": record.get("comments"),
         "ingested_at": datetime.now(tz=timezone.utc),
     }
-
-
-def get_last_ingested_at(endpoint: str, entity_id: int = None):
-    try:
-        if entity_id:
-            result = spark.sql(f"""
-                SELECT last_ingested_at
-                FROM efua_data_platform.football_raw.ingestion_metadata
-                WHERE endpoint = '{endpoint}'
-                AND entity_id = {entity_id}
-                AND status IN ('success', 'skipped')
-                ORDER BY last_ingested_at DESC LIMIT 1
-            """).collect()
-        else:
-            result = spark.sql(f"""
-                SELECT last_ingested_at
-                FROM efua_data_platform.football_raw.ingestion_metadata
-                WHERE endpoint = '{endpoint}'
-                AND status IN ('success', 'skipped')
-                ORDER BY last_ingested_at DESC LIMIT 1
-            """).collect()
-        return result[0][0] if result else None
-    except Exception:
-        return None
 
 
 def update_metadata(
@@ -123,29 +110,19 @@ def update_metadata(
 def load_fixture_events(events: list) -> int:
     if not events:
         return 0
-    existing_ids = {
-        row[0] for row in spark.sql("""
-            SELECT DISTINCT fixture_id
-            FROM efua_data_platform.football_raw.raw_fixture_events
-        """).collect()
-    }
-    new_events = [
-        e for e in events
-        if e["fixture_id"] and e["fixture_id"] not in existing_ids
-    ]
-    if not new_events:
-        return 0
-    df = spark.createDataFrame(new_events, schema=EVENT_SCHEMA)
+    df = spark.createDataFrame(events, schema=EVENT_SCHEMA)
     df.write.mode("append").saveAsTable(
         "efua_data_platform.football_raw.raw_fixture_events"
     )
-    return len(new_events)
+    return len(events)
 
 
 def main():
     global requests_made
     print("⚡ Fetching fixture events...")
     try:
+        ingested_fixture_ids = get_ingested_fixture_ids()
+        print(f"  Already ingested fixture IDs: {len(ingested_fixture_ids)}")
         combos = spark.sql("""
             SELECT DISTINCT league_id, league_season
             FROM efua_data_platform.football_raw.raw_fixtures
@@ -156,19 +133,20 @@ def main():
             league_id = row[0]
             season = row[1]
             requests_made = 0
-            last_ingested_at = get_last_ingested_at(
-                f"{ENDPOINT}_{season}", league_id
-            )
-            if last_ingested_at:
+            all_fixture_ids = get_fixture_ids(league_id, season)
+            new_fixture_ids = [
+                fid for fid in all_fixture_ids
+                if fid not in ingested_fixture_ids
+            ]
+            if not new_fixture_ids:
                 print(f"  League {league_id} season {season} "
-                      f"already ingested — skipping")
+                      f"— no new fixtures, skipping")
                 continue
-            print(f"\n  Fetching events for league "
-                  f"{league_id} season {season}...")
-            fixture_ids = get_fixture_ids(league_id, season)
-            print(f"  Found {len(fixture_ids)} fixtures")
+            print(f"\n  Fetching events for league {league_id} "
+                  f"season {season}: {len(new_fixture_ids)} new fixture(s) "
+                  f"(of {len(all_fixture_ids)} total)...")
             all_events = []
-            for fixture_id in fixture_ids:
+            for fixture_id in new_fixture_ids:
                 response = fetch_from_api(
                     "fixtures/events",
                     params={"fixture": fixture_id}
@@ -179,6 +157,9 @@ def main():
                         flatten_fixture_event(fixture_id, record)
                     )
             event_rows = load_fixture_events(all_events)
+            ingested_fixture_ids.update(
+                e["fixture_id"] for e in all_events
+            )
             print(f"  ✅ Loaded {event_rows} fixture events")
             update_metadata(
                 f"{ENDPOINT}_{season}",

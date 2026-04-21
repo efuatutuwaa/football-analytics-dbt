@@ -146,6 +146,20 @@ def get_last_ingested_at(endpoint: str, entity_id: int = None):
         return None
 
 
+def should_refetch_standings(league_id: int, season: int) -> bool:
+    last_ingested = get_last_ingested_at(f"{ENDPOINT}_{season}", league_id)
+    if not last_ingested:
+        return True
+    current_year = datetime.now().year
+    days_since = (
+        datetime.now(tz=timezone.utc)
+        - last_ingested.replace(tzinfo=timezone.utc)
+    ).days
+    if season >= current_year - 1:
+        return days_since >= 7
+    return False
+
+
 def update_metadata(
     endpoint: str, rows_inserted: int,
     status: str, entity_id: int = None
@@ -167,24 +181,18 @@ def update_metadata(
 def load_standings(standings: list) -> int:
     if not standings:
         return 0
-    existing_combos = {
-        (row[0], row[1]) for row in spark.sql("""
-            SELECT league_id, league_season
-            FROM efua_data_platform.football_raw.raw_standings
-        """).collect()
-    }
-    new_standings = [
-        s for s in standings
-        if (s["league_id"], s["league_season"])
-        not in existing_combos
-    ]
-    if not new_standings:
-        return 0
-    df = spark.createDataFrame(new_standings, schema=STANDING_SCHEMA)
-    df.write.mode("append").saveAsTable(
-        "efua_data_platform.football_raw.raw_standings"
-    )
-    return len(new_standings)
+    df = spark.createDataFrame(standings, schema=STANDING_SCHEMA)
+    df.createOrReplaceTempView("standings_staging")
+    spark.sql("""
+        MERGE INTO efua_data_platform.football_raw.raw_standings AS target
+        USING standings_staging AS source
+        ON target.league_id = source.league_id
+        AND target.league_season = source.league_season
+        AND target.team_id = source.team_id
+        WHEN MATCHED THEN UPDATE SET *
+        WHEN NOT MATCHED THEN INSERT *
+    """)
+    return len(standings)
 
 
 def main():
@@ -194,12 +202,9 @@ def main():
         for league_id in LEAGUE_IDS:
             for season in SEASONS:
                 requests_made = 0
-                last_ingested_at = get_last_ingested_at(
-                    f"{ENDPOINT}_{season}", league_id
-                )
-                if last_ingested_at:
+                if not should_refetch_standings(league_id, season):
                     print(f"  League {league_id} season {season} "
-                          f"already ingested — skipping")
+                          f"— standings up to date, skipping")
                     continue
                 print(f"\n  Fetching standings for league "
                       f"{league_id} season {season}...")
@@ -224,7 +229,7 @@ def main():
                                 )
                             )
                 standing_rows = load_standings(all_standings)
-                print(f"  ✅ Loaded {standing_rows} standings")
+                print(f"  ✅ Refreshed {standing_rows} standings")
                 update_metadata(
                     f"{ENDPOINT}_{season}",
                     standing_rows, "success", league_id
