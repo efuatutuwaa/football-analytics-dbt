@@ -165,6 +165,20 @@ def get_last_ingested_at(endpoint: str, entity_id: int = None):
         return None
 
 
+def should_refetch_fixtures(league_id: int, season: int) -> bool:
+    last_ingested = get_last_ingested_at(f"{ENDPOINT}_{season}", league_id)
+    if not last_ingested:
+        return True
+    current_year = datetime.now().year
+    days_since = (
+        datetime.now(tz=timezone.utc)
+        - last_ingested.replace(tzinfo=timezone.utc)
+    ).days
+    if season >= current_year - 1:
+        return days_since >= 1
+    return False
+
+
 def update_metadata(
     endpoint: str, rows_inserted: int,
     status: str, entity_id: int = None
@@ -186,37 +200,24 @@ def update_metadata(
 def load_fixtures(fixtures: list) -> int:
     if not fixtures:
         return 0
-    existing_ids = {
-        row[0] for row in spark.sql("""
-            SELECT fixture_id
-            FROM efua_data_platform.football_raw.raw_fixtures
-        """).collect()
-    }
-    new_fixtures = [
-        f for f in fixtures
-        if f["fixture_id"] and f["fixture_id"] not in existing_ids
-    ]
-    if not new_fixtures:
-        return 0
-    df = spark.createDataFrame(new_fixtures, schema=FIXTURE_SCHEMA)
-    df.write.mode("append").saveAsTable(
-        "efua_data_platform.football_raw.raw_fixtures"
-    )
-    return len(new_fixtures)
+    df = spark.createDataFrame(fixtures, schema=FIXTURE_SCHEMA)
+    df.createOrReplaceTempView("fixtures_staging")
+    spark.sql("""
+        MERGE INTO efua_data_platform.football_raw.raw_fixtures AS target
+        USING fixtures_staging AS source
+        ON target.fixture_id = source.fixture_id
+        WHEN MATCHED THEN UPDATE SET *
+        WHEN NOT MATCHED THEN INSERT *
+    """)
+    return len(fixtures)
 
 
-def load_fixture_scores(scores: list) -> int:
+def load_fixture_scores(scores: list, existing_score_ids: set) -> int:
     if not scores:
         return 0
-    existing_ids = {
-        row[0] for row in spark.sql("""
-            SELECT fixture_id
-            FROM efua_data_platform.football_raw.raw_fixture_scores
-        """).collect()
-    }
     new_scores = [
         s for s in scores
-        if s["fixture_id"] and s["fixture_id"] not in existing_ids
+        if s["fixture_id"] and s["fixture_id"] not in existing_score_ids
     ]
     if not new_scores:
         return 0
@@ -224,6 +225,7 @@ def load_fixture_scores(scores: list) -> int:
     df.write.mode("append").saveAsTable(
         "efua_data_platform.football_raw.raw_fixture_scores"
     )
+    existing_score_ids.update(s["fixture_id"] for s in new_scores)
     return len(new_scores)
 
 
@@ -231,15 +233,18 @@ def main():
     global requests_made
     print("🏟️ Fetching fixtures...")
     try:
+        existing_score_ids = {
+            row[0] for row in spark.sql("""
+                SELECT fixture_id
+                FROM efua_data_platform.football_raw.raw_fixture_scores
+            """).collect()
+        }
         for league_id in LEAGUE_IDS:
             for season in SEASONS:
                 requests_made = 0
-                last_ingested_at = get_last_ingested_at(
-                    f"{ENDPOINT}_{season}", league_id
-                )
-                if last_ingested_at:
+                if not should_refetch_fixtures(league_id, season):
                     print(f"  League {league_id} season {season} "
-                          f"already ingested — skipping")
+                          f"— completed season already ingested, skipping")
                     continue
                 print(f"\n  Fetching fixtures for league "
                       f"{league_id} season {season}...")
@@ -259,9 +264,9 @@ def main():
                     for r in records
                 ]
                 fixture_rows = load_fixtures(fixtures)
-                score_rows = load_fixture_scores(scores)
-                print(f"  ✅ Loaded {fixture_rows} fixtures")
-                print(f"  ✅ Loaded {score_rows} scores")
+                score_rows = load_fixture_scores(scores, existing_score_ids)
+                print(f"  ✅ Upserted {fixture_rows} fixtures")
+                print(f"  ✅ Loaded {score_rows} new scores")
                 update_metadata(
                     f"{ENDPOINT}_{season}",
                     fixture_rows + score_rows,

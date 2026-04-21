@@ -62,6 +62,17 @@ def get_fixture_ids(league_id: int, season: int) -> list:
     return [row[0] for row in result]
 
 
+def get_ingested_fixture_ids() -> set:
+    try:
+        result = spark.sql("""
+            SELECT DISTINCT fixture_id
+            FROM efua_data_platform.football_raw.raw_fixture_lineups
+        """).collect()
+        return {row[0] for row in result}
+    except Exception:
+        return set()
+
+
 def flatten_fixture_lineup(fixture_id: int, record: dict) -> dict:
     team = record.get("team", {})
     coach = record.get("coach", {})
@@ -94,30 +105,6 @@ def flatten_lineup_player(
     }
 
 
-def get_last_ingested_at(endpoint: str, entity_id: int = None):
-    try:
-        if entity_id:
-            result = spark.sql(f"""
-                SELECT last_ingested_at
-                FROM efua_data_platform.football_raw.ingestion_metadata
-                WHERE endpoint = '{endpoint}'
-                AND entity_id = {entity_id}
-                AND status IN ('success', 'skipped')
-                ORDER BY last_ingested_at DESC LIMIT 1
-            """).collect()
-        else:
-            result = spark.sql(f"""
-                SELECT last_ingested_at
-                FROM efua_data_platform.football_raw.ingestion_metadata
-                WHERE endpoint = '{endpoint}'
-                AND status IN ('success', 'skipped')
-                ORDER BY last_ingested_at DESC LIMIT 1
-            """).collect()
-        return result[0][0] if result else None
-    except Exception:
-        return None
-
-
 def update_metadata(
     endpoint: str, rows_inserted: int,
     status: str, entity_id: int = None
@@ -139,51 +126,29 @@ def update_metadata(
 def load_fixture_lineups(lineups: list) -> int:
     if not lineups:
         return 0
-    existing_ids = {
-        row[0] for row in spark.sql("""
-            SELECT DISTINCT fixture_id
-            FROM efua_data_platform.football_raw.raw_fixture_lineups
-        """).collect()
-    }
-    new_lineups = [
-        ln for ln in lineups
-        if ln["fixture_id"] and ln["fixture_id"] not in existing_ids
-    ]
-    if not new_lineups:
-        return 0
-    df = spark.createDataFrame(new_lineups, schema=LINEUP_SCHEMA)
+    df = spark.createDataFrame(lineups, schema=LINEUP_SCHEMA)
     df.write.mode("append").saveAsTable(
         "efua_data_platform.football_raw.raw_fixture_lineups"
     )
-    return len(new_lineups)
+    return len(lineups)
 
 
 def load_lineup_players(players: list) -> int:
     if not players:
         return 0
-    existing_ids = {
-        row[0] for row in spark.sql("""
-            SELECT DISTINCT fixture_id
-            FROM efua_data_platform.football_raw.raw_fixture_lineup_players
-        """).collect()
-    }
-    new_players = [
-        p for p in players
-        if p["fixture_id"] and p["fixture_id"] not in existing_ids
-    ]
-    if not new_players:
-        return 0
-    df = spark.createDataFrame(new_players, schema=LINEUP_PLAYER_SCHEMA)
+    df = spark.createDataFrame(players, schema=LINEUP_PLAYER_SCHEMA)
     df.write.mode("append").saveAsTable(
         "efua_data_platform.football_raw.raw_fixture_lineup_players"
     )
-    return len(new_players)
+    return len(players)
 
 
 def main():
     global requests_made
     print("📋 Fetching fixture lineups...")
     try:
+        ingested_fixture_ids = get_ingested_fixture_ids()
+        print(f"  Already ingested fixture IDs: {len(ingested_fixture_ids)}")
         combos = spark.sql("""
             SELECT DISTINCT league_id, league_season
             FROM efua_data_platform.football_raw.raw_fixtures
@@ -194,20 +159,21 @@ def main():
             league_id = row[0]
             season = row[1]
             requests_made = 0
-            last_ingested_at = get_last_ingested_at(
-                f"{ENDPOINT}_{season}", league_id
-            )
-            if last_ingested_at:
+            all_fixture_ids = get_fixture_ids(league_id, season)
+            new_fixture_ids = [
+                fid for fid in all_fixture_ids
+                if fid not in ingested_fixture_ids
+            ]
+            if not new_fixture_ids:
                 print(f"  League {league_id} season {season} "
-                      f"already ingested — skipping")
+                      f"— no new fixtures, skipping")
                 continue
-            print(f"\n  Fetching lineups for league "
-                  f"{league_id} season {season}...")
-            fixture_ids = get_fixture_ids(league_id, season)
-            print(f"  Found {len(fixture_ids)} fixtures")
+            print(f"\n  Fetching lineups for league {league_id} "
+                  f"season {season}: {len(new_fixture_ids)} new fixture(s) "
+                  f"(of {len(all_fixture_ids)} total)...")
             all_lineups = []
             all_players = []
-            for fixture_id in fixture_ids:
+            for fixture_id in new_fixture_ids:
                 response = fetch_from_api(
                     "fixtures/lineups",
                     params={"fixture": fixture_id}
@@ -232,6 +198,9 @@ def main():
                         )
             lineup_rows = load_fixture_lineups(all_lineups)
             player_rows = load_lineup_players(all_players)
+            ingested_fixture_ids.update(
+                ln["fixture_id"] for ln in all_lineups
+            )
             print(f"  ✅ Loaded {lineup_rows} lineups")
             print(f"  ✅ Loaded {player_rows} lineup players")
             update_metadata(
