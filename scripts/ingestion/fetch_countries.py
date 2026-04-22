@@ -59,16 +59,18 @@ def get_last_ingested_at(endpoint: str):
         return None
 
 
-def update_metadata(endpoint: str, rows_inserted: int, status: str):
+def update_metadata(endpoint: str, rows_inserted: int, status: str,
+                    started_at: datetime = None):
     now = datetime.now(tz=timezone.utc)
+    started_val = f"'{started_at.isoformat()}'" if started_at else "NULL"
     spark.sql(f"""
         INSERT INTO efua_data_platform.football_raw.ingestion_metadata
         (endpoint, entity_id, last_ingested_at, rows_inserted,
-         requests_used, status, created_at)
+         requests_used, status, created_at, started_at)
         VALUES (
             '{endpoint}', NULL, '{now.isoformat()}',
             {rows_inserted}, {requests_made}, '{status}',
-            '{now.isoformat()}'
+            '{now.isoformat()}', {started_val}
         )
     """)
 
@@ -102,6 +104,7 @@ def main():
     if last_ingested_at:
         print("  Countries already ingested — skipping")
         return
+    started_at = datetime.now(tz=timezone.utc)
     try:
         response = fetch_from_api(ENDPOINT)
         records = response.get("response", [])
@@ -109,9 +112,10 @@ def main():
         countries = [flatten_country(r) for r in records]
         rows_inserted = load_countries(countries)
         print(f"  ✅ Loaded {rows_inserted} countries")
-        update_metadata(ENDPOINT, rows_inserted, "success")
+        update_metadata(ENDPOINT, rows_inserted, "success", started_at=started_at)
         print("🎉 Countries ingestion complete!")
     except Exception as e:
+        update_metadata(ENDPOINT, 0, "failed", started_at=started_at)
         print(f"❌ Error: {e}")
         raise
 

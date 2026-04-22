@@ -141,18 +141,20 @@ def should_refetch_league(league_id: int) -> bool:
 
 def update_metadata(
     endpoint: str, rows_inserted: int,
-    status: str, entity_id: int = None
+    status: str, entity_id: int = None,
+    started_at: datetime = None
 ):
     now = datetime.now(tz=timezone.utc)
     entity_val = str(entity_id) if entity_id else "NULL"
+    started_val = f"'{started_at.isoformat()}'" if started_at else "NULL"
     spark.sql(f"""
         INSERT INTO efua_data_platform.football_raw.ingestion_metadata
         (endpoint, entity_id, last_ingested_at, rows_inserted,
-         requests_used, status, created_at)
+         requests_used, status, created_at, started_at)
         VALUES (
             '{endpoint}', {entity_val}, '{now.isoformat()}',
             {rows_inserted}, {requests_made}, '{status}',
-            '{now.isoformat()}'
+            '{now.isoformat()}', {started_val}
         )
     """)
 
@@ -203,12 +205,16 @@ def load_league_seasons(seasons: list) -> int:
 def main():
     global requests_made
     print("🏆 Fetching leagues...")
+    current_entity_id = None
+    started_at = None
     try:
         for league_id in LEAGUE_IDS:
             requests_made = 0
             if not should_refetch_league(league_id):
                 print(f"  League {league_id} recently fetched — skipping")
                 continue
+            started_at = datetime.now(tz=timezone.utc)
+            current_entity_id = league_id
             print(f"\n  Fetching league {league_id}...")
             response = fetch_from_api(ENDPOINT, params={"id": league_id})
             records = response.get("response", [])
@@ -224,9 +230,17 @@ def main():
             season_rows = load_league_seasons(seasons)
             print(f"  ✅ Loaded {league_rows} leagues")
             print(f"  ✅ Loaded {season_rows} seasons")
-            update_metadata(ENDPOINT, league_rows + season_rows, "success", league_id)
+            update_metadata(
+                ENDPOINT, league_rows + season_rows,
+                "success", league_id, started_at=started_at
+            )
         print("\n🎉 Leagues ingestion complete!")
     except Exception as e:
+        if current_entity_id:
+            update_metadata(
+                ENDPOINT, 0, "failed",
+                current_entity_id, started_at
+            )
         print(f"❌ Error: {e}")
         raise
 

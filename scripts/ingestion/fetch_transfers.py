@@ -154,19 +154,21 @@ def flatten_transfer(
 
 def update_metadata(
     endpoint: str, rows_inserted: int,
-    status: str, entity_id: int = None
+    status: str, entity_id: int = None,
+    started_at: datetime = None
 ):
     """Update ingestion metadata after each run."""
     now = datetime.now(tz=timezone.utc)
     entity_val = str(entity_id) if entity_id else "NULL"
+    started_val = f"'{started_at.isoformat()}'" if started_at else "NULL"
     spark.sql(f"""
         INSERT INTO efua_data_platform.football_raw.ingestion_metadata
         (endpoint, entity_id, last_ingested_at, rows_inserted,
-         requests_used, status, created_at)
+         requests_used, status, created_at, started_at)
         VALUES (
             '{endpoint}', {entity_val}, '{now.isoformat()}',
             {rows_inserted}, {requests_made}, '{status}',
-            '{now.isoformat()}'
+            '{now.isoformat()}', {started_val}
         )
     """)
 
@@ -265,6 +267,8 @@ def main():
 
     skipped_to_log = []
 
+    current_entity_id = None
+    started_at = None
     try:
         for player_id in player_ids:
             requests_made = 0
@@ -281,6 +285,8 @@ def main():
                 print(f"  Player {player_id} recently checked — skipping")
                 continue
 
+            started_at = datetime.now(tz=timezone.utc)
+            current_entity_id = player_id
             response = fetch_from_api(
                 ENDPOINT,
                 params={"player": player_id}
@@ -310,7 +316,8 @@ def main():
 
             update_metadata(
                 ENDPOINT, transfer_rows,
-                "success", player_id
+                "success", player_id,
+                started_at=started_at
             )
 
         log_skipped_players_bulk(skipped_to_log)
@@ -319,6 +326,11 @@ def main():
 
     except Exception as e:
         log_skipped_players_bulk(skipped_to_log)
+        if current_entity_id:
+            update_metadata(
+                ENDPOINT, 0, "failed",
+                current_entity_id, started_at
+            )
         print(f"❌ Error: {e}")
         raise
 
