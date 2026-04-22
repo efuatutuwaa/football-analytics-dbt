@@ -387,7 +387,8 @@ DDL_STATEMENTS = [
         rows_inserted INT,
         requests_used INT,
         status STRING,
-        created_at TIMESTAMP
+        created_at TIMESTAMP,
+        started_at TIMESTAMP
     ) USING DELTA
     """,
 ]
