@@ -108,18 +108,20 @@ def flatten_fixture_statistics(
 
 def update_metadata(
     endpoint: str, rows_inserted: int,
-    status: str, entity_id: int = None
+    status: str, entity_id: int = None,
+    started_at: datetime = None
 ):
     now = datetime.now(tz=timezone.utc)
     entity_val = str(entity_id) if entity_id else "NULL"
+    started_val = f"'{started_at.isoformat()}'" if started_at else "NULL"
     spark.sql(f"""
         INSERT INTO efua_data_platform.football_raw.ingestion_metadata
         (endpoint, entity_id, last_ingested_at, rows_inserted,
-         requests_used, status, created_at)
+         requests_used, status, created_at, started_at)
         VALUES (
             '{endpoint}', {entity_val}, '{now.isoformat()}',
             {rows_inserted}, {requests_made}, '{status}',
-            '{now.isoformat()}'
+            '{now.isoformat()}', {started_val}
         )
     """)
 
@@ -137,6 +139,9 @@ def load_fixture_statistics(statistics: list) -> int:
 def main():
     global requests_made
     print("📊 Fetching fixture statistics...")
+    current_endpoint = None
+    current_entity_id = None
+    started_at = None
     try:
         ingested_fixture_ids = get_ingested_fixture_ids()
         print(f"  Already ingested fixture IDs: {len(ingested_fixture_ids)}")
@@ -150,6 +155,9 @@ def main():
             league_id = row[0]
             season = row[1]
             requests_made = 0
+            started_at = datetime.now(tz=timezone.utc)
+            current_endpoint = f"{ENDPOINT}_{season}"
+            current_entity_id = league_id
             all_fixture_ids = get_fixture_ids(league_id, season)
             new_fixture_ids = [
                 fid for fid in all_fixture_ids
@@ -180,10 +188,16 @@ def main():
             print(f"  ✅ Loaded {stat_rows} fixture statistics")
             update_metadata(
                 f"{ENDPOINT}_{season}",
-                stat_rows, "success", league_id
+                stat_rows, "success", league_id,
+                started_at=started_at
             )
         print("\n🎉 Fixture statistics ingestion complete!")
     except Exception as e:
+        if current_endpoint:
+            update_metadata(
+                current_endpoint, 0, "failed",
+                current_entity_id, started_at
+            )
         print(f"❌ Error: {e}")
         raise
 

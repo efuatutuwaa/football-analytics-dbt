@@ -101,18 +101,20 @@ def get_last_ingested_at(endpoint: str, entity_id: int = None):
 
 def update_metadata(
     endpoint: str, rows_inserted: int,
-    status: str, entity_id: int = None
+    status: str, entity_id: int = None,
+    started_at: datetime = None
 ):
     now = datetime.now(tz=timezone.utc)
     entity_val = str(entity_id) if entity_id else "NULL"
+    started_val = f"'{started_at.isoformat()}'" if started_at else "NULL"
     spark.sql(f"""
         INSERT INTO efua_data_platform.football_raw.ingestion_metadata
         (endpoint, entity_id, last_ingested_at, rows_inserted,
-         requests_used, status, created_at)
+         requests_used, status, created_at, started_at)
         VALUES (
             '{endpoint}', {entity_val}, '{now.isoformat()}',
             {rows_inserted}, {requests_made}, '{status}',
-            '{now.isoformat()}'
+            '{now.isoformat()}', {started_val}
         )
     """)
 
@@ -174,6 +176,8 @@ def main():
     print(f"  Found {len(team_ids)} teams")
     print(f"  Transfer window active: {in_window}")
 
+    current_entity_id = None
+    started_at = None
     try:
         for team_id in team_ids:
             requests_made = 0
@@ -182,6 +186,8 @@ def main():
                 print(f"  Team {team_id} recently checked — skipping")
                 continue
 
+            started_at = datetime.now(tz=timezone.utc)
+            current_entity_id = team_id
             response = fetch_from_api(
                 ENDPOINT,
                 params={"team": team_id}
@@ -211,12 +217,18 @@ def main():
 
             update_metadata(
                 ENDPOINT, squad_rows,
-                "success", team_id
+                "success", team_id,
+                started_at=started_at
             )
 
         print("\n🎉 Team squads ingestion complete!")
 
     except Exception as e:
+        if current_entity_id:
+            update_metadata(
+                ENDPOINT, 0, "failed",
+                current_entity_id, started_at
+            )
         print(f"❌ Error: {e}")
         raise
 
