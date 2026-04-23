@@ -57,12 +57,25 @@ def get_fixture_ids(league_id: int, season: int) -> list:
 
 
 def get_ingested_fixture_ids() -> set:
+    """Return fixtures that have been successfully ingested OR
+    marked as skipped because the API has no events for them
+    (e.g. UCL qualifying rounds).
+    """
     try:
-        result = spark.sql("""
+        ingested = spark.sql("""
             SELECT DISTINCT fixture_id
             FROM efua_data_platform.football_raw.raw_fixture_events
         """).collect()
-        return {row[0] for row in result}
+        skipped = spark.sql(f"""
+            SELECT DISTINCT entity_id
+            FROM efua_data_platform.football_raw.ingestion_metadata
+            WHERE endpoint = '{ENDPOINT}'
+            AND status = 'skipped'
+        """).collect()
+        return (
+            {row[0] for row in ingested}
+            | {row[0] for row in skipped if row[0] is not None}
+        )
     except Exception:
         return set()
 
@@ -119,6 +132,27 @@ def load_fixture_events(events: list) -> int:
     return len(events)
 
 
+def log_skipped_fixtures_bulk(fixture_ids: list):
+    """Bulk insert fixtures with no API data into ingestion_metadata.
+    Prevents re-querying these fixtures on every subsequent run
+    (e.g. UCL qualifying rounds that API-Football does not cover).
+    """
+    if not fixture_ids:
+        return
+    now = datetime.now(tz=timezone.utc)
+    values = ", ".join(
+        f"('{ENDPOINT}', {fid}, '{now.isoformat()}', 0, 0, "
+        f"'skipped', '{now.isoformat()}', NULL)"
+        for fid in fixture_ids
+    )
+    spark.sql(f"""
+        INSERT INTO efua_data_platform.football_raw.ingestion_metadata
+        (endpoint, entity_id, last_ingested_at, rows_inserted,
+         requests_used, status, created_at, started_at)
+        VALUES {values}
+    """)
+
+
 def main():
     global requests_made
     print("⚡ Fetching fixture events...")
@@ -154,12 +188,16 @@ def main():
                   f"season {season}: {len(new_fixture_ids)} new fixture(s) "
                   f"(of {len(all_fixture_ids)} total)...")
             all_events = []
+            skipped_fixtures = []
             for fixture_id in new_fixture_ids:
                 response = fetch_from_api(
                     "fixtures/events",
                     params={"fixture": fixture_id}
                 )
                 records = response.get("response", [])
+                if not records:
+                    skipped_fixtures.append(fixture_id)
+                    continue
                 for record in records:
                     all_events.append(
                         flatten_fixture_event(fixture_id, record)
@@ -169,6 +207,11 @@ def main():
                 e["fixture_id"] for e in all_events
             )
             print(f"  ✅ Loaded {event_rows} fixture events")
+            if skipped_fixtures:
+                log_skipped_fixtures_bulk(skipped_fixtures)
+                ingested_fixture_ids.update(skipped_fixtures)
+                print(f"  ⏭️  Logged {len(skipped_fixtures)} fixtures "
+                      f"with no API data (won't re-query)")
             update_metadata(
                 f"{ENDPOINT}_{season}",
                 event_rows, "success", league_id,
