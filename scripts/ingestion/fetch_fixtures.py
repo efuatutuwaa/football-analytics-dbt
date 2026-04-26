@@ -214,21 +214,29 @@ def load_fixtures(fixtures: list) -> int:
     return len(fixtures)
 
 
-def load_fixture_scores(scores: list, existing_score_ids: set) -> int:
+def load_fixture_scores(scores: list) -> int:
+    """Upsert fixture scores via Delta MERGE so late corrections
+    (VAR overturns, retroactive goal adjustments, penalty shootout
+    additions) are captured for fixtures that already exist in the
+    table. Previously this was an INSERT-only-with-dedup pattern,
+    which silently dropped any score change after first ingest.
+    """
     if not scores:
         return 0
-    new_scores = [
-        s for s in scores
-        if s["fixture_id"] and s["fixture_id"] not in existing_score_ids
-    ]
-    if not new_scores:
+    valid_scores = [s for s in scores if s["fixture_id"]]
+    if not valid_scores:
         return 0
-    df = spark.createDataFrame(new_scores, schema=SCORE_SCHEMA)
-    df.write.mode("append").saveAsTable(
-        "efua_data_platform.football_raw.raw_fixture_scores"
-    )
-    existing_score_ids.update(s["fixture_id"] for s in new_scores)
-    return len(new_scores)
+    df = spark.createDataFrame(valid_scores, schema=SCORE_SCHEMA)
+    df.createOrReplaceTempView("fixture_scores_staging")
+    spark.sql("""
+        MERGE INTO efua_data_platform.football_raw.raw_fixture_scores
+            AS target
+        USING fixture_scores_staging AS source
+        ON target.fixture_id = source.fixture_id
+        WHEN MATCHED THEN UPDATE SET *
+        WHEN NOT MATCHED THEN INSERT *
+    """)
+    return len(valid_scores)
 
 
 def main():
@@ -238,12 +246,6 @@ def main():
     current_entity_id = None
     started_at = None
     try:
-        existing_score_ids = {
-            row[0] for row in spark.sql("""
-                SELECT fixture_id
-                FROM efua_data_platform.football_raw.raw_fixture_scores
-            """).collect()
-        }
         for league_id in LEAGUE_IDS:
             for season in SEASONS:
                 requests_made = 0
@@ -272,9 +274,9 @@ def main():
                     for r in records
                 ]
                 fixture_rows = load_fixtures(fixtures)
-                score_rows = load_fixture_scores(scores, existing_score_ids)
+                score_rows = load_fixture_scores(scores)
                 print(f"  ✅ Upserted {fixture_rows} fixtures")
-                print(f"  ✅ Loaded {score_rows} new scores")
+                print(f"  ✅ Upserted {score_rows} fixture scores")
                 update_metadata(
                     f"{ENDPOINT}_{season}",
                     fixture_rows + score_rows,
