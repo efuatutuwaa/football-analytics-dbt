@@ -210,6 +210,7 @@ __marimo__/
 target/
 dbt_packages/
 logs/
+.user.yml
 .env
 profiles.yml
 
