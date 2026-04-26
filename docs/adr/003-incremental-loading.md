@@ -13,7 +13,7 @@ repeated runs of the ingestion scripts. Two options existed:
 1. Full refresh — truncate and reload all data on every run
 2. Incremental — only fetch and load new or updated data
 
-The project ingests data across 9 competitions, 6 seasons, and 
+The project ingests data across 15 competitions, 7 seasons, and 
 18 raw tables. A full refresh on every run would:
 - Consume excessive API requests (limited to 75,000/day on Pro plan)
 - Create unnecessary Databricks compute costs
