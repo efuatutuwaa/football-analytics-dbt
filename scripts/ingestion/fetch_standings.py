@@ -4,13 +4,12 @@ from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
 
+from constants import LEAGUE_IDS, SEASONS
+
 API_KEY = dbutils.secrets.get(scope="football", key="api_key")  # noqa: F821
 API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
 ENDPOINT = "standings"
-
-LEAGUE_IDS = [39, 2, 1, 4, 15, 140, 78, 61, 135]
-SEASONS = list(range(2020, datetime.now().year + 1))
 
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
