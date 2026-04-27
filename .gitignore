@@ -214,5 +214,12 @@ logs/
 .env
 profiles.yml
 
+# Work-in-progress dbt models and snapshots — kept local until ready.
+# sources.yml is the single tracked file (CI source freshness/tests depend on it).
+models/**
+!models/sources/
+!models/sources/sources.yml
+snapshots/**
+
 # secrets
 scripts/config.py
