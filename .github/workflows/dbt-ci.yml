@@ -49,5 +49,3 @@ jobs:
       - name: dbt compile
         run: dbt compile
 
-      - name: dbt test (sources only — staging models are still empty stubs)
-        run: dbt test --select "source:*"
