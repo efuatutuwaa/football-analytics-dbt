@@ -117,9 +117,7 @@ sources:
 
       - name: raw_team_squads
         description: Current squad rosters per team fetched from the squads endpoint. Refreshed quarterly (weekly during transfer window).
-        freshness:
-          warn_after: {count: 30, period: day}
-          error_after: {count: 60, period: day}
+        freshness: null
         tests:
           - dbt_utils.unique_combination_of_columns:
               combination_of_columns:
@@ -215,9 +213,7 @@ sources:
 
       - name: raw_coaches
         description: Coach profiles with current team assignment. INSERT-only on new coach_id, so freshness only advances when a new coach is hired. Refreshed monthly (weekly during transfer window).
-        freshness:
-          warn_after: {count: 30, period: day}
-          error_after: {count: 60, period: day}
+        freshness: null
         columns:
           - name: coach_id
             tests: [not_null, unique]
@@ -262,9 +258,7 @@ sources:
 
       - name: raw_transfers
         description: Player transfer history including loan and permanent moves. INSERT-only on new (player_id, transfer_date, team_in_id), so freshness only advances when a new transfer is recorded. Refreshed every 30 days (7 days during transfer window).
-        freshness:
-          warn_after: {count: 30, period: day}
-          error_after: {count: 60, period: day}
+        freshness: null
         tests:
           - dbt_utils.unique_combination_of_columns:
               combination_of_columns:
