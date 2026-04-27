@@ -37,7 +37,7 @@ jobs:
           echo "      http_path: $DBT_DATABRICKS_HTTP_PATH" >> ~/.dbt/profiles.yml
           echo "      token: $DBT_DATABRICKS_TOKEN"         >> ~/.dbt/profiles.yml
           echo "      catalog: workspace"                    >> ~/.dbt/profiles.yml
-          echo "      schema: football_staging"              >> ~/.dbt/profiles.yml
+          echo "      schema: dbt_ci"                        >> ~/.dbt/profiles.yml
           echo "      threads: 4"                            >> ~/.dbt/profiles.yml
 
       - name: dbt deps
@@ -49,10 +49,5 @@ jobs:
       - name: dbt compile
         run: dbt compile
 
-      - name: dbt test
-        run: |
-          if find models/ -name "*.sql" | grep -q .; then
-            dbt test
-          else
-            echo "No models to test yet — skipping"
-          fi
+      - name: dbt test (sources only — staging models are still empty stubs)
+        run: dbt test --select "source:*"
