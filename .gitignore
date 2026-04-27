@@ -214,6 +214,9 @@ logs/
 .env
 profiles.yml
 
+# work in progress — not ready for CI
+models/ops/
+
 # Work-in-progress dbt models and snapshots — kept local until ready.
 # sources.yml is the single tracked file (CI source freshness/tests depend on it).
 models/**
