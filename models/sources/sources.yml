@@ -1,0 +1,480 @@
+version: 2
+
+sources:
+  - name: football_raw
+    database: efua_data_platform
+    schema: football_raw
+    description: Raw ingested data from the API-Football v3 API via PySpark ingestion scripts.
+    loaded_at_field: ingested_at
+    freshness:
+      warn_after: {count: 36, period: hour}
+      error_after: {count: 48, period: hour}
+
+    tables:
+      - name: raw_countries
+        description: Country reference data. Static — refreshed annually.
+        freshness: null
+        columns:
+          - name: country_name
+            tests: [not_null]
+          - name: country_code
+          - name: country_flag_url
+          - name: ingested_at
+            tests: [not_null]
+
+      - name: raw_leagues
+        description: League metadata for all tracked competitions. Static — refreshed annually.
+        freshness: null
+        columns:
+          - name: league_id
+            tests: [not_null, unique]
+          - name: league_name
+            tests: [not_null]
+          - name: league_type
+          - name: league_logo_url
+          - name: country_name
+          - name: country_code
+          - name: country_flag_url
+          - name: ingested_at
+            tests: [not_null]
+
+      - name: raw_league_seasons
+        description: Season-level metadata per league including coverage flags. Refreshed annually.
+        freshness: null
+        tests:
+          - dbt_utils.unique_combination_of_columns:
+              combination_of_columns:
+                - league_id
+                - season_year
+        columns:
+          - name: league_id
+            tests: [not_null]
+          - name: season_year
+            tests: [not_null]
+          - name: season_start
+          - name: season_end
+          - name: is_current_season
+          - name: coverage_fixtures_events
+          - name: coverage_fixtures_lineups
+          - name: coverage_standings
+          - name: coverage_players
+          - name: coverage_top_scorers
+          - name: coverage_injuries
+          - name: coverage_predictions
+          - name: coverage_odds
+          - name: ingested_at
+            tests: [not_null]
+
+      - name: raw_teams
+        description: Team profiles across all tracked leagues and seasons. Refreshed annually.
+        freshness: null
+        columns:
+          - name: team_id
+            tests: [not_null, unique]
+          - name: team_name
+            tests: [not_null]
+          - name: team_code
+          - name: team_country
+          - name: founded_year
+          - name: is_national_team
+          - name: team_logo_url
+          - name: ingested_at
+            tests: [not_null]
+
+      - name: raw_venues
+        description: Stadium and venue information linked to teams. Refreshed annually.
+        freshness: null
+        columns:
+          - name: venue_id
+            tests: [not_null, unique]
+          - name: venue_name
+          - name: venue_address
+          - name: venue_city
+          - name: venue_capacity
+          - name: venue_surface
+          - name: venue_image_url
+          - name: ingested_at
+            tests: [not_null]
+
+      - name: raw_team_seasons
+        description: Maps teams to the leagues and seasons they competed in. Refreshed annually.
+        freshness: null
+        tests:
+          - dbt_utils.unique_combination_of_columns:
+              combination_of_columns:
+                - team_id
+                - league_id
+                - season_year
+        columns:
+          - name: team_id
+            tests: [not_null]
+          - name: league_id
+            tests: [not_null]
+          - name: season_year
+            tests: [not_null]
+          - name: ingested_at
+            tests: [not_null]
+
+      - name: raw_team_squads
+        description: Current squad rosters per team fetched from the squads endpoint. Refreshed quarterly (weekly during transfer window).
+        freshness:
+          warn_after: {count: 30, period: day}
+          error_after: {count: 60, period: day}
+        tests:
+          - dbt_utils.unique_combination_of_columns:
+              combination_of_columns:
+                - team_id
+                - player_id
+        columns:
+          - name: team_id
+            tests: [not_null]
+          - name: team_name
+          - name: player_id
+            tests: [not_null]
+          - name: player_name
+          - name: player_age
+          - name: jersey_number
+          - name: position
+          - name: photo_url
+          - name: ingested_at
+            tests: [not_null]
+
+      - name: raw_players
+        description: Player biographical data across all tracked leagues and seasons. Refreshed annually.
+        freshness: null
+        columns:
+          - name: player_id
+            tests: [not_null, unique]
+          - name: player_name
+            tests: [not_null]
+          - name: firstname
+          - name: lastname
+          - name: age
+          - name: birth_date
+          - name: birth_place
+          - name: birth_country
+          - name: nationality
+          - name: height
+          - name: weight
+          - name: photo_url
+          - name: ingested_at
+            tests: [not_null]
+
+      - name: raw_player_statistics
+        description: Per-fixture player performance statistics.
+        tests:
+          - dbt_utils.unique_combination_of_columns:
+              combination_of_columns:
+                - fixture_id
+                - team_id
+                - player_id
+        columns:
+          - name: fixture_id
+            tests: [not_null]
+          - name: team_id
+            tests: [not_null]
+          - name: team_name
+          - name: player_id
+            tests: [not_null]
+          - name: player_name
+          - name: minutes_played
+          - name: jersey_number
+          - name: position
+          - name: rating
+          - name: is_captain
+          - name: is_substitute
+          - name: offsides
+          - name: shots_total
+          - name: shots_on_target
+          - name: goals_scored
+          - name: goals_conceded
+          - name: assists
+          - name: saves
+          - name: passes_total
+          - name: passes_key
+          - name: pass_accuracy
+          - name: tackles_total
+          - name: blocks
+          - name: interceptions
+          - name: duels_total
+          - name: duels_won
+          - name: dribbles_attempted
+          - name: dribbles_success
+          - name: dribbles_past
+          - name: fouls_drawn
+          - name: fouls_committed
+          - name: yellow_cards
+          - name: red_cards
+          - name: penalty_won
+          - name: penalty_committed
+          - name: penalty_scored
+          - name: penalty_missed
+          - name: penalty_saved
+          - name: ingested_at
+            tests: [not_null]
+
+      - name: raw_coaches
+        description: Coach profiles with current team assignment. INSERT-only on new coach_id, so freshness only advances when a new coach is hired. Refreshed monthly (weekly during transfer window).
+        freshness:
+          warn_after: {count: 30, period: day}
+          error_after: {count: 60, period: day}
+        columns:
+          - name: coach_id
+            tests: [not_null, unique]
+          - name: coach_name
+            tests: [not_null]
+          - name: firstname
+          - name: lastname
+          - name: age
+          - name: birth_date
+          - name: birth_place
+          - name: birth_country
+          - name: nationality
+          - name: height
+          - name: weight
+          - name: photo_url
+          - name: current_team_id
+          - name: current_team_name
+          - name: ingested_at
+            tests: [not_null]
+
+      - name: raw_coach_careers
+        description: Full coaching career history per coach. Refreshed alongside raw_coaches.
+        freshness:
+          warn_after: {count: 7, period: day}
+          error_after: {count: 14, period: day}
+        tests:
+          - dbt_utils.unique_combination_of_columns:
+              combination_of_columns:
+                - coach_id
+                - team_id
+                - start_date
+        columns:
+          - name: coach_id
+            tests: [not_null]
+          - name: coach_name
+          - name: team_id
+          - name: team_name
+          - name: start_date
+          - name: end_date
+          - name: ingested_at
+            tests: [not_null]
+
+      - name: raw_transfers
+        description: Player transfer history including loan and permanent moves. INSERT-only on new (player_id, transfer_date, team_in_id), so freshness only advances when a new transfer is recorded. Refreshed every 30 days (7 days during transfer window).
+        freshness:
+          warn_after: {count: 30, period: day}
+          error_after: {count: 60, period: day}
+        tests:
+          - dbt_utils.unique_combination_of_columns:
+              combination_of_columns:
+                - player_id
+                - transfer_date
+                - team_in_id
+        columns:
+          - name: player_id
+            tests: [not_null]
+          - name: player_name
+          - name: transfer_date
+          - name: transfer_type
+          - name: team_in_id
+          - name: team_in_name
+          - name: team_out_id
+          - name: team_out_name
+          - name: last_updated
+          - name: ingested_at
+            tests: [not_null]
+
+      - name: raw_fixtures
+        description: Match fixtures with venue, status, and team information.
+        columns:
+          - name: fixture_id
+            tests: [not_null, unique]
+          - name: referee
+          - name: timezone
+          - name: match_date
+          - name: match_timestamp
+          - name: first_period_start
+          - name: second_period_start
+          - name: venue_id
+          - name: venue_name
+          - name: venue_city
+          - name: status_long
+          - name: status_short
+          - name: elapsed_minutes
+          - name: extra_time
+          - name: league_id
+            tests: [not_null]
+          - name: league_name
+          - name: league_country
+          - name: league_season
+          - name: league_round
+          - name: home_team_id
+            tests: [not_null]
+          - name: home_team_name
+          - name: home_team_winner
+          - name: away_team_id
+            tests: [not_null]
+          - name: away_team_name
+          - name: away_team_winner
+          - name: ingested_at
+            tests: [not_null]
+
+      - name: raw_fixture_scores
+        description: Halftime, fulltime, extratime, and penalty scores per fixture. Upserted via MERGE on every fixture refresh.
+        freshness:
+          warn_after: {count: 48, period: hour}
+          error_after: {count: 96, period: hour}
+        columns:
+          - name: fixture_id
+            tests: [not_null, unique]
+          - name: halftime_home
+          - name: halftime_away
+          - name: fulltime_home
+          - name: fulltime_away
+          - name: extratime_home
+          - name: extratime_away
+          - name: penalty_home
+          - name: penalty_away
+          - name: ingested_at
+            tests: [not_null]
+
+      - name: raw_fixture_events
+        description: In-match events (goals, cards, substitutions) per fixture. Multiple events per player per match are expected.
+        columns:
+          - name: fixture_id
+            tests: [not_null]
+          - name: elapsed_minutes
+          - name: extra_minutes
+          - name: team_id
+            tests: [not_null]
+          - name: team_name
+          - name: player_id
+          - name: player_name
+          - name: assist_player_id
+          - name: assist_player_name
+          - name: event_type
+          - name: event_detail
+          - name: comments
+          - name: ingested_at
+            tests: [not_null]
+
+      - name: raw_fixture_lineups
+        description: Team formation and coach per fixture.
+        tests:
+          - dbt_utils.unique_combination_of_columns:
+              combination_of_columns:
+                - fixture_id
+                - team_id
+        columns:
+          - name: fixture_id
+            tests: [not_null]
+          - name: team_id
+            tests: [not_null]
+          - name: team_name
+          - name: formation
+          - name: coach_id
+          - name: coach_name
+          - name: ingested_at
+            tests: [not_null]
+
+      - name: raw_fixture_lineup_players
+        description: Individual player lineup details per fixture and team.
+        tests:
+          - dbt_utils.unique_combination_of_columns:
+              combination_of_columns:
+                - fixture_id
+                - team_id
+                - player_id
+        columns:
+          - name: fixture_id
+            tests: [not_null]
+          - name: team_id
+            tests: [not_null]
+          - name: player_id
+            tests: [not_null]
+          - name: player_name
+          - name: jersey_number
+          - name: position
+          - name: grid_position
+          - name: is_starter
+          - name: ingested_at
+            tests: [not_null]
+
+      - name: raw_fixture_statistics
+        description: Team-level match statistics per fixture (shots, passes, cards, etc).
+        tests:
+          - dbt_utils.unique_combination_of_columns:
+              combination_of_columns:
+                - fixture_id
+                - team_id
+        columns:
+          - name: fixture_id
+            tests: [not_null]
+          - name: team_id
+            tests: [not_null]
+          - name: team_name
+          - name: shots_on_goal
+          - name: shots_off_goal
+          - name: total_shots
+          - name: blocked_shots
+          - name: shots_inside_box
+          - name: shots_outside_box
+          - name: fouls
+          - name: corner_kicks
+          - name: offsides
+          - name: ball_possession
+          - name: yellow_cards
+          - name: red_cards
+          - name: goalkeeper_saves
+          - name: total_passes
+          - name: accurate_passes
+          - name: pass_accuracy
+          - name: ingested_at
+            tests: [not_null]
+
+      - name: raw_standings
+        description: League table standings per team, season, and matchweek.
+        tests:
+          - dbt_utils.unique_combination_of_columns:
+              combination_of_columns:
+                - league_id
+                - league_season
+                - team_id
+        columns:
+          - name: league_id
+            tests: [not_null]
+          - name: league_name
+          - name: league_season
+            tests: [not_null]
+          - name: team_id
+            tests: [not_null]
+          - name: team_name
+          - name: rank
+          - name: points
+          - name: goals_diff
+          - name: group_name
+          - name: form
+          - name: status
+          - name: description
+          - name: all_played
+          - name: all_wins
+          - name: all_draws
+          - name: all_losses
+          - name: all_goals_for
+          - name: all_goals_against
+          - name: home_played
+          - name: home_wins
+          - name: home_draws
+          - name: home_losses
+          - name: home_goals_for
+          - name: home_goals_against
+          - name: away_played
+          - name: away_wins
+          - name: away_draws
+          - name: away_losses
+          - name: away_goals_for
+          - name: away_goals_against
+          - name: last_updated
+          - name: ingested_at
+            tests: [not_null]

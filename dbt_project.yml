@@ -23,17 +23,13 @@ models:
     core:
       +materialized: table
       +schema: football_core
-      scd_club_coach:
-        +materialized: incremental
-      scd_club_league:
-        +materialized: incremental
-      scd_player_club:
-        +materialized: incremental
-      scd_player_market_value:
-        +materialized: incremental
     marts:
       +materialized: table
       +schema: football_marts
     ops:
       +materialized: table
       +schema: football_ops
+
+snapshots:
+  football_analytics:
+    +target_schema: football_core

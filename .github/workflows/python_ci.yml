@@ -57,8 +57,11 @@ jobs:
           echo "      http_path: $DBT_DATABRICKS_HTTP_PATH" >> ~/.dbt/profiles.yml
           echo "      token: $DBT_DATABRICKS_TOKEN"         >> ~/.dbt/profiles.yml
           echo "      catalog: workspace"                    >> ~/.dbt/profiles.yml
-          echo "      schema: football_staging"              >> ~/.dbt/profiles.yml
+          echo "      schema: dbt_ci"                        >> ~/.dbt/profiles.yml
           echo "      threads: 4"                            >> ~/.dbt/profiles.yml
+
+      - name: dbt deps
+        run: dbt deps
 
       - name: Lint SQL models with sqlfluff
         run: |
