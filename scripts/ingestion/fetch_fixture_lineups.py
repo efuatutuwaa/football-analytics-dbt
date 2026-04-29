@@ -142,20 +142,22 @@ def load_fixture_lineups(lineups: list) -> int:
     if not lineups:
         return 0
     df = spark.createDataFrame(lineups, schema=LINEUP_SCHEMA)
+    df = df.dropDuplicates(["fixture_id", "team_id"])
     df.write.mode("append").saveAsTable(
         "efua_data_platform.football_raw.raw_fixture_lineups"
     )
-    return len(lineups)
+    return df.count()
 
 
 def load_lineup_players(players: list) -> int:
     if not players:
         return 0
     df = spark.createDataFrame(players, schema=LINEUP_PLAYER_SCHEMA)
+    df = df.dropDuplicates(["fixture_id", "team_id", "player_id", "is_starter"])
     df.write.mode("append").saveAsTable(
         "efua_data_platform.football_raw.raw_fixture_lineup_players"
     )
-    return len(players)
+    return df.count()
 
 
 def log_skipped_fixtures_bulk(fixture_ids: list):
