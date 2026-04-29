@@ -126,10 +126,15 @@ def load_fixture_events(events: list) -> int:
     if not events:
         return 0
     df = spark.createDataFrame(events, schema=EVENT_SCHEMA)
+    dedup_cols = [
+        "fixture_id", "team_id", "player_id",
+        "event_type", "event_detail", "elapsed_minutes", "extra_minutes"
+    ]
+    df = df.dropDuplicates(dedup_cols)
     df.write.mode("append").saveAsTable(
         "efua_data_platform.football_raw.raw_fixture_events"
     )
-    return len(events)
+    return df.count()
 
 
 def log_skipped_fixtures_bulk(fixture_ids: list):
