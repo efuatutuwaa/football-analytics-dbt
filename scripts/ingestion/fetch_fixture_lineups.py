@@ -1,6 +1,6 @@
 import time
 import requests
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType, BooleanType
 
@@ -63,17 +63,14 @@ def get_fixture_ids(league_id: int, season: int) -> list:
 
 
 def get_ingested_fixture_ids() -> set:
-    """Return fixture IDs that are stable (ingested > 7 days ago) or permanently
-    skipped. Fixtures ingested within 7 days are re-fetched to capture corrections.
+    """Return fixtures that have been successfully ingested OR
+    marked as skipped because the API has no lineups for them
+    (e.g. UCL qualifying rounds).
     """
     try:
-        cutoff = (
-            datetime.now(tz=timezone.utc) - timedelta(days=7)
-        ).isoformat()
-        ingested = spark.sql(f"""
+        ingested = spark.sql("""
             SELECT DISTINCT fixture_id
             FROM efua_data_platform.football_raw.raw_fixture_lineups
-            WHERE ingested_at < '{cutoff}'
         """).collect()
         skipped = spark.sql(f"""
             SELECT DISTINCT entity_id
@@ -147,15 +144,11 @@ def load_fixture_lineups(lineups: list) -> int:
     fixture_ids_str = ", ".join(
         str(fid) for fid in {ln["fixture_id"] for ln in lineups}
     )
-    spark.sql(f"""
-        DELETE FROM efua_data_platform.football_raw.raw_fixture_lineups
-        WHERE fixture_id IN ({fixture_ids_str})
-    """)
     df = spark.createDataFrame(lineups, schema=LINEUP_SCHEMA)
     df = df.dropDuplicates(["fixture_id", "team_id"])
-    df.write.mode("append").saveAsTable(
-        "efua_data_platform.football_raw.raw_fixture_lineups"
-    )
+    df.write.mode("overwrite").option(
+        "replaceWhere", f"fixture_id IN ({fixture_ids_str})"
+    ).saveAsTable("efua_data_platform.football_raw.raw_fixture_lineups")
     return df.count()
 
 
@@ -165,15 +158,11 @@ def load_lineup_players(players: list) -> int:
     fixture_ids_str = ", ".join(
         str(fid) for fid in {p["fixture_id"] for p in players}
     )
-    spark.sql(f"""
-        DELETE FROM efua_data_platform.football_raw.raw_fixture_lineup_players
-        WHERE fixture_id IN ({fixture_ids_str})
-    """)
     df = spark.createDataFrame(players, schema=LINEUP_PLAYER_SCHEMA)
-    df = df.dropDuplicates(["fixture_id", "team_id", "player_id", "is_starter"])
-    df.write.mode("append").saveAsTable(
-        "efua_data_platform.football_raw.raw_fixture_lineup_players"
-    )
+    df = df.dropDuplicates(["fixture_id", "team_id", "player_id"])
+    df.write.mode("overwrite").option(
+        "replaceWhere", f"fixture_id IN ({fixture_ids_str})"
+    ).saveAsTable("efua_data_platform.football_raw.raw_fixture_lineup_players")
     return df.count()
 
 
