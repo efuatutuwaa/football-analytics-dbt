@@ -1,6 +1,6 @@
 import time
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
 
@@ -57,14 +57,17 @@ def get_fixture_ids(league_id: int, season: int) -> list:
 
 
 def get_ingested_fixture_ids() -> set:
-    """Return fixtures that have been successfully ingested OR
-    marked as skipped because the API has no events for them
-    (e.g. UCL qualifying rounds).
+    """Return fixture IDs that are stable (ingested > 7 days ago) or permanently
+    skipped. Fixtures ingested within 7 days are re-fetched to capture corrections.
     """
     try:
-        ingested = spark.sql("""
+        cutoff = (
+            datetime.now(tz=timezone.utc) - timedelta(days=7)
+        ).isoformat()
+        ingested = spark.sql(f"""
             SELECT DISTINCT fixture_id
             FROM efua_data_platform.football_raw.raw_fixture_events
+            WHERE ingested_at < '{cutoff}'
         """).collect()
         skipped = spark.sql(f"""
             SELECT DISTINCT entity_id
@@ -125,6 +128,13 @@ def update_metadata(
 def load_fixture_events(events: list) -> int:
     if not events:
         return 0
+    fixture_ids_str = ", ".join(
+        str(fid) for fid in {e["fixture_id"] for e in events}
+    )
+    spark.sql(f"""
+        DELETE FROM efua_data_platform.football_raw.raw_fixture_events
+        WHERE fixture_id IN ({fixture_ids_str})
+    """)
     df = spark.createDataFrame(events, schema=EVENT_SCHEMA)
     dedup_cols = [
         "fixture_id", "team_id", "player_id",
