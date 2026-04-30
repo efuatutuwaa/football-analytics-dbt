@@ -222,6 +222,8 @@ models/ops/
 models/**
 !models/sources/
 !models/sources/sources.yml
+!models/staging/
+!models/staging/*.sql
 snapshots/**
 
 # secrets

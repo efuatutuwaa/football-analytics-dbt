@@ -18,8 +18,21 @@ models:
     staging:
       +materialized: view
       +schema: football_staging
+      stg_fixtures:
+        +materialized: table
+      stg_fixture_events:
+        +materialized: table
+      stg_fixture_lineups_players:
+        +materialized: table
+      stg_fixture_statistics:
+        +materialized: table
+      stg_player_statistics:
+        +materialized: table
+      stg_standings:
+        +materialized: table
     intermediate:
-      +materialized: ephemeral
+      +materialized: table
+      +schema: football_intermediate
     core:
       +materialized: table
       +schema: football_core
