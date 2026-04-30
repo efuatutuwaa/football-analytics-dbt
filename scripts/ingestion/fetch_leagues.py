@@ -182,23 +182,15 @@ def load_leagues(leagues: list) -> int:
 def load_league_seasons(seasons: list) -> int:
     if not seasons:
         return 0
-    existing_combos = {
-        (row[0], row[1]) for row in spark.sql("""
-            SELECT league_id, season_year
-            FROM efua_data_platform.football_raw.raw_league_seasons
-        """).collect()
-    }
-    new_seasons = [
-        s for s in seasons
-        if (s["league_id"], s["season_year"]) not in existing_combos
-    ]
-    if not new_seasons:
-        return 0
-    df = spark.createDataFrame(new_seasons, schema=LEAGUE_SEASON_SCHEMA)
-    df.write.mode("append").saveAsTable(
-        "efua_data_platform.football_raw.raw_league_seasons"
+    league_ids_str = ", ".join(
+        str(lid) for lid in {s["league_id"] for s in seasons}
     )
-    return len(new_seasons)
+    df = spark.createDataFrame(seasons, schema=LEAGUE_SEASON_SCHEMA)
+    df = df.dropDuplicates(["league_id", "season_year"])
+    df.write.mode("overwrite").option(
+        "replaceWhere", f"league_id IN ({league_ids_str})"
+    ).saveAsTable("efua_data_platform.football_raw.raw_league_seasons")
+    return df.count()
 
 
 def main():

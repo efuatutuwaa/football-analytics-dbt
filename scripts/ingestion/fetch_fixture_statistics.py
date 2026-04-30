@@ -1,6 +1,6 @@
 import time
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
 
@@ -64,14 +64,17 @@ def get_fixture_ids(league_id: int, season: int) -> list:
 
 
 def get_ingested_fixture_ids() -> set:
-    """Return fixtures that have been successfully ingested OR
-    marked as skipped because the API has no statistics for them
-    (e.g. UCL qualifying rounds).
+    """Return fixture IDs that are stable (ingested > 7 days ago) or permanently
+    skipped. Fixtures ingested within 7 days are re-fetched to capture corrections.
     """
     try:
-        ingested = spark.sql("""
+        cutoff = (
+            datetime.now(tz=timezone.utc) - timedelta(days=7)
+        ).isoformat()
+        ingested = spark.sql(f"""
             SELECT DISTINCT fixture_id
             FROM efua_data_platform.football_raw.raw_fixture_statistics
+            WHERE ingested_at < '{cutoff}'
         """).collect()
         skipped = spark.sql(f"""
             SELECT DISTINCT entity_id
@@ -142,11 +145,15 @@ def update_metadata(
 def load_fixture_statistics(statistics: list) -> int:
     if not statistics:
         return 0
-    df = spark.createDataFrame(statistics, schema=FIXTURE_STATS_SCHEMA)
-    df.write.mode("append").saveAsTable(
-        "efua_data_platform.football_raw.raw_fixture_statistics"
+    fixture_ids_str = ", ".join(
+        str(fid) for fid in {s["fixture_id"] for s in statistics}
     )
-    return len(statistics)
+    df = spark.createDataFrame(statistics, schema=FIXTURE_STATS_SCHEMA)
+    df = df.dropDuplicates(["fixture_id", "team_id"])
+    df.write.mode("overwrite").option(
+        "replaceWhere", f"fixture_id IN ({fixture_ids_str})"
+    ).saveAsTable("efua_data_platform.football_raw.raw_fixture_statistics")
+    return df.count()
 
 
 def log_skipped_fixtures_bulk(fixture_ids: list):

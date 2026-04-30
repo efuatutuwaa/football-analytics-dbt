@@ -164,17 +164,8 @@ def update_metadata(
 def load_coaches(coaches: list) -> int:
     if not coaches:
         return 0
-    existing_ids = {
-        row[0] for row in spark.sql("""
-            SELECT coach_id
-            FROM efua_data_platform.football_raw.raw_coaches
-        """).collect()
-    }
-    new_coaches = [
-        c for c in coaches
-        if c["coach_id"] and c["coach_id"] not in existing_ids
-    ]
-    if not new_coaches:
+    valid_coaches = [c for c in coaches if c["coach_id"]]
+    if not valid_coaches:
         return 0
     schema = StructType([
         StructField("coach_id", IntegerType(), True),
@@ -193,30 +184,29 @@ def load_coaches(coaches: list) -> int:
         StructField("current_team_name", StringType(), True),
         StructField("ingested_at", TimestampType(), True),
     ])
-    df = spark.createDataFrame(new_coaches, schema=schema)
-    df.write.mode("append").saveAsTable(
-        "efua_data_platform.football_raw.raw_coaches"
-    )
-    return len(new_coaches)
+    df = spark.createDataFrame(valid_coaches, schema=schema)
+    df.createOrReplaceTempView("coaches_staging")
+    spark.sql("""
+        MERGE INTO efua_data_platform.football_raw.raw_coaches AS target
+        USING coaches_staging AS source
+        ON target.coach_id = source.coach_id
+        WHEN MATCHED THEN UPDATE SET
+            current_team_id   = source.current_team_id,
+            current_team_name = source.current_team_name,
+            ingested_at       = source.ingested_at
+        WHEN NOT MATCHED THEN INSERT *
+    """)
+    return len(valid_coaches)
 
 
-def load_coach_careers(careers: list) -> int:
+def load_coach_careers(careers: list, coach_ids: list) -> int:
     if not careers:
         return 0
-    existing_combos = {
-        (row[0], row[1], str(row[2]))
-        for row in spark.sql("""
-            SELECT coach_id, team_id, start_date
-            FROM efua_data_platform.football_raw.raw_coach_careers
-        """).collect()
-    }
-    new_careers = [
-        c for c in careers
-        if (c["coach_id"], c["team_id"], str(c["start_date"]))
-        not in existing_combos
-    ]
-    if not new_careers:
-        return 0
+    ids_str = ", ".join(str(i) for i in coach_ids)
+    spark.sql(f"""
+        DELETE FROM efua_data_platform.football_raw.raw_coach_careers
+        WHERE coach_id IN ({ids_str})
+    """)
     schema = StructType([
         StructField("coach_id", IntegerType(), True),
         StructField("coach_name", StringType(), True),
@@ -226,11 +216,11 @@ def load_coach_careers(careers: list) -> int:
         StructField("end_date", DateType(), True),
         StructField("ingested_at", TimestampType(), True),
     ])
-    df = spark.createDataFrame(new_careers, schema=schema)
+    df = spark.createDataFrame(careers, schema=schema)
     df.write.mode("append").saveAsTable(
         "efua_data_platform.football_raw.raw_coach_careers"
     )
-    return len(new_careers)
+    return len(careers)
 
 
 def log_skipped_team(team_id: int):
@@ -293,8 +283,9 @@ def main():
                         flatten_coach_career(coach_id, coach_name, career)
                     )
 
+            coach_ids = [c["coach_id"] for c in coaches if c["coach_id"]]
             coach_rows = load_coaches(coaches)
-            career_rows = load_coach_careers(careers)
+            career_rows = load_coach_careers(careers, coach_ids)
 
             print(f"  Team {team_id}: ✅ {coach_rows} coaches "
                   f"{career_rows} career records")
