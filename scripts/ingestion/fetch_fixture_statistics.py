@@ -148,15 +148,11 @@ def load_fixture_statistics(statistics: list) -> int:
     fixture_ids_str = ", ".join(
         str(fid) for fid in {s["fixture_id"] for s in statistics}
     )
-    spark.sql(f"""
-        DELETE FROM efua_data_platform.football_raw.raw_fixture_statistics
-        WHERE fixture_id IN ({fixture_ids_str})
-    """)
     df = spark.createDataFrame(statistics, schema=FIXTURE_STATS_SCHEMA)
     df = df.dropDuplicates(["fixture_id", "team_id"])
-    df.write.mode("append").saveAsTable(
-        "efua_data_platform.football_raw.raw_fixture_statistics"
-    )
+    df.write.mode("overwrite").option(
+        "replaceWhere", f"fixture_id IN ({fixture_ids_str})"
+    ).saveAsTable("efua_data_platform.football_raw.raw_fixture_statistics")
     return df.count()
 
 
