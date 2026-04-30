@@ -8,7 +8,7 @@
 
 with source as (
     select
-        -- identifiers 
+        -- identifiers
         fixture_id,
         team_id,
         player_id,
@@ -26,4 +26,5 @@ with source as (
     {% endif %}
 
 )
+
 select * from source
