@@ -147,15 +147,11 @@ def load_fixture_lineups(lineups: list) -> int:
     fixture_ids_str = ", ".join(
         str(fid) for fid in {ln["fixture_id"] for ln in lineups}
     )
-    spark.sql(f"""
-        DELETE FROM efua_data_platform.football_raw.raw_fixture_lineups
-        WHERE fixture_id IN ({fixture_ids_str})
-    """)
     df = spark.createDataFrame(lineups, schema=LINEUP_SCHEMA)
     df = df.dropDuplicates(["fixture_id", "team_id"])
-    df.write.mode("append").saveAsTable(
-        "efua_data_platform.football_raw.raw_fixture_lineups"
-    )
+    df.write.mode("overwrite").option(
+        "replaceWhere", f"fixture_id IN ({fixture_ids_str})"
+    ).saveAsTable("efua_data_platform.football_raw.raw_fixture_lineups")
     return df.count()
 
 
@@ -165,15 +161,11 @@ def load_lineup_players(players: list) -> int:
     fixture_ids_str = ", ".join(
         str(fid) for fid in {p["fixture_id"] for p in players}
     )
-    spark.sql(f"""
-        DELETE FROM efua_data_platform.football_raw.raw_fixture_lineup_players
-        WHERE fixture_id IN ({fixture_ids_str})
-    """)
     df = spark.createDataFrame(players, schema=LINEUP_PLAYER_SCHEMA)
     df = df.dropDuplicates(["fixture_id", "team_id", "player_id", "is_starter"])
-    df.write.mode("append").saveAsTable(
-        "efua_data_platform.football_raw.raw_fixture_lineup_players"
-    )
+    df.write.mode("overwrite").option(
+        "replaceWhere", f"fixture_id IN ({fixture_ids_str})"
+    ).saveAsTable("efua_data_platform.football_raw.raw_fixture_lineup_players")
     return df.count()
 
 

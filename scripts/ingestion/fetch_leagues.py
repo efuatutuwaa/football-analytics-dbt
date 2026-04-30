@@ -185,15 +185,11 @@ def load_league_seasons(seasons: list) -> int:
     league_ids_str = ", ".join(
         str(lid) for lid in {s["league_id"] for s in seasons}
     )
-    spark.sql(f"""
-        DELETE FROM efua_data_platform.football_raw.raw_league_seasons
-        WHERE league_id IN ({league_ids_str})
-    """)
     df = spark.createDataFrame(seasons, schema=LEAGUE_SEASON_SCHEMA)
     df = df.dropDuplicates(["league_id", "season_year"])
-    df.write.mode("append").saveAsTable(
-        "efua_data_platform.football_raw.raw_league_seasons"
-    )
+    df.write.mode("overwrite").option(
+        "replaceWhere", f"league_id IN ({league_ids_str})"
+    ).saveAsTable("efua_data_platform.football_raw.raw_league_seasons")
     return df.count()
 
 
