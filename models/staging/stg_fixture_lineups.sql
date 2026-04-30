@@ -17,7 +17,7 @@ with source as (
         cast(ingested_at as timestamp) as ingested_at
     from {{ source('football_raw', 'raw_fixture_lineups') }}
     {% if is_incremental() %}
-        where ingested_at >= (select max(ingested_at) from {{ this }})
+        where ingested_at > (select max(ingested_at) from {{ this }})
     {% endif %}
 )
 
