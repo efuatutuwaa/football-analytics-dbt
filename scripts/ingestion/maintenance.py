@@ -7,12 +7,10 @@ TABLES = [
     "raw_fixtures",
     "raw_fixture_scores",
     "raw_fixture_events",
-    "raw_fixture_lineups",
     "raw_fixture_lineup_players",
     "raw_fixture_statistics",
     "raw_player_statistics",
     "raw_standings",
-    "ingestion_metadata",
 ]
 
 VACUUM_RETAIN_HOURS = 168  # 7 days — Delta minimum safe retention
