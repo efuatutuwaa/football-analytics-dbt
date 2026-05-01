@@ -149,7 +149,7 @@ def load_fixture_lineups(lineups: list) -> int:
     df.write.mode("overwrite").option(
         "replaceWhere", f"fixture_id IN ({fixture_ids_str})"
     ).saveAsTable("efua_data_platform.football_raw.raw_fixture_lineups")
-    return df.count()
+    return len(lineups)
 
 
 def load_lineup_players(players: list) -> int:
@@ -163,7 +163,7 @@ def load_lineup_players(players: list) -> int:
     df.write.mode("overwrite").option(
         "replaceWhere", f"fixture_id IN ({fixture_ids_str})"
     ).saveAsTable("efua_data_platform.football_raw.raw_fixture_lineup_players")
-    return df.count()
+    return len(players)
 
 
 def log_skipped_fixtures_bulk(fixture_ids: list):

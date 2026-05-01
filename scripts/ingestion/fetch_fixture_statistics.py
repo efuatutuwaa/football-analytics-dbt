@@ -153,7 +153,7 @@ def load_fixture_statistics(statistics: list) -> int:
     df.write.mode("overwrite").option(
         "replaceWhere", f"fixture_id IN ({fixture_ids_str})"
     ).saveAsTable("efua_data_platform.football_raw.raw_fixture_statistics")
-    return df.count()
+    return len(statistics)
 
 
 def log_skipped_fixtures_bulk(fixture_ids: list):
