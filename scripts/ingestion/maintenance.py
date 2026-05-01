@@ -4,16 +4,6 @@ CATALOG = "efua_data_platform"
 SCHEMA = "football_raw"
 
 TABLES = [
-    "raw_countries",
-    "raw_leagues",
-    "raw_league_seasons",
-    "raw_teams",
-    "raw_venues",
-    "raw_team_seasons",
-    "raw_team_squads",
-    "raw_players",
-    "raw_coaches",
-    "raw_coach_careers",
     "raw_fixtures",
     "raw_fixture_scores",
     "raw_fixture_events",
@@ -22,7 +12,6 @@ TABLES = [
     "raw_fixture_statistics",
     "raw_player_statistics",
     "raw_standings",
-    "raw_transfers",
     "ingestion_metadata",
 ]
 
