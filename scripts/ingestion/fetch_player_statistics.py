@@ -194,10 +194,13 @@ def load_player_statistics(stats: list) -> int:
     )
     df = spark.createDataFrame(stats, schema=PLAYER_STATS_SCHEMA)
     df = df.dropDuplicates(["fixture_id", "team_id", "player_id"])
+    df.cache()
+    count = df.count()
     df.write.mode("overwrite").option(
         "replaceWhere", f"fixture_id IN ({fixture_ids_str})"
     ).saveAsTable("efua_data_platform.football_raw.raw_player_statistics")
-    return df.count()
+    df.unpersist()
+    return count
 
 
 def log_skipped_fixtures_bulk(fixture_ids: list):
