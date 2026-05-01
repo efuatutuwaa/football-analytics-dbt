@@ -137,10 +137,13 @@ def load_fixture_events(events: list) -> int:
         "event_type", "event_detail", "elapsed_minutes", "extra_minutes"
     ]
     df = df.dropDuplicates(dedup_cols)
+    df.cache()
+    count = df.count()
     df.write.mode("overwrite").option(
         "replaceWhere", f"fixture_id IN ({fixture_ids_str})"
     ).saveAsTable("efua_data_platform.football_raw.raw_fixture_events")
-    return len(events)
+    df.unpersist()
+    return count
 
 
 def log_skipped_fixtures_bulk(fixture_ids: list):
