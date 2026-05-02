@@ -1,8 +1,14 @@
 import time
 import requests
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pyspark.sql import SparkSession
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
+from pyspark.sql.types import (
+    StructType,
+    StructField,
+    StringType,
+    IntegerType,
+    TimestampType,
+)
 
 API_KEY = dbutils.secrets.get(scope="football", key="api_key")  # noqa: F821
 API_BASE_URL = "https://v3.football.api-sports.io"
@@ -12,21 +18,23 @@ ENDPOINT = "fixtures/events"
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
 
-EVENT_SCHEMA = StructType([
-    StructField("fixture_id", IntegerType(), True),
-    StructField("elapsed_minutes", IntegerType(), True),
-    StructField("extra_minutes", IntegerType(), True),
-    StructField("team_id", IntegerType(), True),
-    StructField("team_name", StringType(), True),
-    StructField("player_id", IntegerType(), True),
-    StructField("player_name", StringType(), True),
-    StructField("assist_player_id", IntegerType(), True),
-    StructField("assist_player_name", StringType(), True),
-    StructField("event_type", StringType(), True),
-    StructField("event_detail", StringType(), True),
-    StructField("comments", StringType(), True),
-    StructField("ingested_at", TimestampType(), True),
-])
+EVENT_SCHEMA = StructType(
+    [
+        StructField("fixture_id", IntegerType(), True),
+        StructField("elapsed_minutes", IntegerType(), True),
+        StructField("extra_minutes", IntegerType(), True),
+        StructField("team_id", IntegerType(), True),
+        StructField("team_name", StringType(), True),
+        StructField("player_id", IntegerType(), True),
+        StructField("player_name", StringType(), True),
+        StructField("assist_player_id", IntegerType(), True),
+        StructField("assist_player_name", StringType(), True),
+        StructField("event_type", StringType(), True),
+        StructField("event_detail", StringType(), True),
+        StructField("comments", StringType(), True),
+        StructField("ingested_at", TimestampType(), True),
+    ]
+)
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
@@ -57,17 +65,11 @@ def get_fixture_ids(league_id: int, season: int) -> list:
 
 
 def get_ingested_fixture_ids() -> set:
-    """Return fixture IDs that are stable (ingested > 7 days ago) or permanently
-    skipped. Fixtures ingested within 7 days are re-fetched to capture corrections.
-    """
+    """Return all fixture IDs already ingested or permanently skipped."""
     try:
-        cutoff = (
-            datetime.now(tz=timezone.utc) - timedelta(days=7)
-        ).isoformat()
-        ingested = spark.sql(f"""
+        ingested = spark.sql("""
             SELECT DISTINCT fixture_id
             FROM efua_data_platform.football_raw.raw_fixture_events
-            WHERE ingested_at < '{cutoff}'
         """).collect()
         skipped = spark.sql(f"""
             SELECT DISTINCT entity_id
@@ -75,10 +77,9 @@ def get_ingested_fixture_ids() -> set:
             WHERE endpoint = '{ENDPOINT}'
             AND status = 'skipped'
         """).collect()
-        return (
-            {row[0] for row in ingested}
-            | {row[0] for row in skipped if row[0] is not None}
-        )
+        return {row[0] for row in ingested} | {
+            row[0] for row in skipped if row[0] is not None
+        }
     except Exception:
         return set()
 
@@ -106,9 +107,11 @@ def flatten_fixture_event(fixture_id: int, record: dict) -> dict:
 
 
 def update_metadata(
-    endpoint: str, rows_inserted: int,
-    status: str, entity_id: int = None,
-    started_at: datetime = None
+    endpoint: str,
+    rows_inserted: int,
+    status: str,
+    entity_id: int = None,
+    started_at: datetime = None,
 ):
     now = datetime.now(tz=timezone.utc)
     entity_val = str(entity_id) if entity_id else "NULL"
@@ -128,13 +131,16 @@ def update_metadata(
 def load_fixture_events(events: list) -> int:
     if not events:
         return 0
-    fixture_ids_str = ", ".join(
-        str(fid) for fid in {e["fixture_id"] for e in events}
-    )
+    fixture_ids_str = ", ".join(str(fid) for fid in {e["fixture_id"] for e in events})
     df = spark.createDataFrame(events, schema=EVENT_SCHEMA)
     dedup_cols = [
-        "fixture_id", "team_id", "player_id",
-        "event_type", "event_detail", "elapsed_minutes", "extra_minutes"
+        "fixture_id",
+        "team_id",
+        "player_id",
+        "event_type",
+        "event_detail",
+        "elapsed_minutes",
+        "extra_minutes",
     ]
     df = df.dropDuplicates(dedup_cols)
     df.write.mode("overwrite").option(
@@ -188,52 +194,53 @@ def main():
             current_entity_id = league_id
             all_fixture_ids = get_fixture_ids(league_id, season)
             new_fixture_ids = [
-                fid for fid in all_fixture_ids
-                if fid not in ingested_fixture_ids
+                fid for fid in all_fixture_ids if fid not in ingested_fixture_ids
             ]
             if not new_fixture_ids:
-                print(f"  League {league_id} season {season} "
-                      f"— no new fixtures, skipping")
+                print(
+                    f"  League {league_id} season {season} "
+                    f"— no new fixtures, skipping"
+                )
                 continue
-            print(f"\n  Fetching events for league {league_id} "
-                  f"season {season}: {len(new_fixture_ids)} new fixture(s) "
-                  f"(of {len(all_fixture_ids)} total)...")
+            print(
+                f"\n  Fetching events for league {league_id} "
+                f"season {season}: {len(new_fixture_ids)} new fixture(s) "
+                f"(of {len(all_fixture_ids)} total)..."
+            )
             all_events = []
             skipped_fixtures = []
             for fixture_id in new_fixture_ids:
                 response = fetch_from_api(
-                    "fixtures/events",
-                    params={"fixture": fixture_id}
+                    "fixtures/events", params={"fixture": fixture_id}
                 )
                 records = response.get("response", [])
                 if not records:
                     skipped_fixtures.append(fixture_id)
                     continue
                 for record in records:
-                    all_events.append(
-                        flatten_fixture_event(fixture_id, record)
-                    )
+                    all_events.append(flatten_fixture_event(fixture_id, record))
             event_rows = load_fixture_events(all_events)
-            ingested_fixture_ids.update(
-                e["fixture_id"] for e in all_events
-            )
+            ingested_fixture_ids.update(e["fixture_id"] for e in all_events)
             print(f"  ✅ Loaded {event_rows} fixture events")
             if skipped_fixtures:
                 log_skipped_fixtures_bulk(skipped_fixtures)
                 ingested_fixture_ids.update(skipped_fixtures)
-                print(f"  ⏭️  Logged {len(skipped_fixtures)} fixtures "
-                      f"with no API data (won't re-query)")
+                print(
+                    f"  ⏭️  Logged {len(skipped_fixtures)} fixtures "
+                    f"with no API data (won't re-query)"
+                )
             update_metadata(
                 f"{ENDPOINT}_{season}",
-                event_rows, "success", league_id,
-                started_at=started_at
+                event_rows,
+                "success",
+                league_id,
+                started_at=started_at,
             )
         print("\n🎉 Fixture events ingestion complete!")
     except Exception as e:
         if current_endpoint:
             update_metadata(
-                current_endpoint, 0, "failed",
-                current_entity_id, started_at
+                current_endpoint, 0, "failed", current_entity_id, started_at
             )
         print(f"❌ Error: {e}")
         raise
