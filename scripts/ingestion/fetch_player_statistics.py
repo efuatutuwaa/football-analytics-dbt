@@ -1,8 +1,15 @@
 import time
 import requests
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pyspark.sql import SparkSession
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType, BooleanType
+from pyspark.sql.types import (
+    StructType,
+    StructField,
+    StringType,
+    IntegerType,
+    TimestampType,
+    BooleanType,
+)
 
 API_KEY = dbutils.secrets.get(scope="football", key="api_key")  # noqa: F821
 API_BASE_URL = "https://v3.football.api-sports.io"
@@ -12,47 +19,49 @@ ENDPOINT = "fixtures/players"
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
 
-PLAYER_STATS_SCHEMA = StructType([
-    StructField("fixture_id", IntegerType(), True),
-    StructField("team_id", IntegerType(), True),
-    StructField("team_name", StringType(), True),
-    StructField("player_id", IntegerType(), True),
-    StructField("player_name", StringType(), True),
-    StructField("minutes_played", IntegerType(), True),
-    StructField("jersey_number", IntegerType(), True),
-    StructField("position", StringType(), True),
-    StructField("rating", StringType(), True),
-    StructField("is_captain", BooleanType(), True),
-    StructField("is_substitute", BooleanType(), True),
-    StructField("offsides", IntegerType(), True),
-    StructField("shots_total", IntegerType(), True),
-    StructField("shots_on_target", IntegerType(), True),
-    StructField("goals_scored", IntegerType(), True),
-    StructField("goals_conceded", IntegerType(), True),
-    StructField("assists", IntegerType(), True),
-    StructField("saves", IntegerType(), True),
-    StructField("passes_total", IntegerType(), True),
-    StructField("passes_key", IntegerType(), True),
-    StructField("pass_accuracy", StringType(), True),
-    StructField("tackles_total", IntegerType(), True),
-    StructField("blocks", IntegerType(), True),
-    StructField("interceptions", IntegerType(), True),
-    StructField("duels_total", IntegerType(), True),
-    StructField("duels_won", IntegerType(), True),
-    StructField("dribbles_attempted", IntegerType(), True),
-    StructField("dribbles_success", IntegerType(), True),
-    StructField("dribbles_past", IntegerType(), True),
-    StructField("fouls_drawn", IntegerType(), True),
-    StructField("fouls_committed", IntegerType(), True),
-    StructField("yellow_cards", IntegerType(), True),
-    StructField("red_cards", IntegerType(), True),
-    StructField("penalty_won", IntegerType(), True),
-    StructField("penalty_committed", IntegerType(), True),
-    StructField("penalty_scored", IntegerType(), True),
-    StructField("penalty_missed", IntegerType(), True),
-    StructField("penalty_saved", IntegerType(), True),
-    StructField("ingested_at", TimestampType(), True),
-])
+PLAYER_STATS_SCHEMA = StructType(
+    [
+        StructField("fixture_id", IntegerType(), True),
+        StructField("team_id", IntegerType(), True),
+        StructField("team_name", StringType(), True),
+        StructField("player_id", IntegerType(), True),
+        StructField("player_name", StringType(), True),
+        StructField("minutes_played", IntegerType(), True),
+        StructField("jersey_number", IntegerType(), True),
+        StructField("position", StringType(), True),
+        StructField("rating", StringType(), True),
+        StructField("is_captain", BooleanType(), True),
+        StructField("is_substitute", BooleanType(), True),
+        StructField("offsides", IntegerType(), True),
+        StructField("shots_total", IntegerType(), True),
+        StructField("shots_on_target", IntegerType(), True),
+        StructField("goals_scored", IntegerType(), True),
+        StructField("goals_conceded", IntegerType(), True),
+        StructField("assists", IntegerType(), True),
+        StructField("saves", IntegerType(), True),
+        StructField("passes_total", IntegerType(), True),
+        StructField("passes_key", IntegerType(), True),
+        StructField("pass_accuracy", StringType(), True),
+        StructField("tackles_total", IntegerType(), True),
+        StructField("blocks", IntegerType(), True),
+        StructField("interceptions", IntegerType(), True),
+        StructField("duels_total", IntegerType(), True),
+        StructField("duels_won", IntegerType(), True),
+        StructField("dribbles_attempted", IntegerType(), True),
+        StructField("dribbles_success", IntegerType(), True),
+        StructField("dribbles_past", IntegerType(), True),
+        StructField("fouls_drawn", IntegerType(), True),
+        StructField("fouls_committed", IntegerType(), True),
+        StructField("yellow_cards", IntegerType(), True),
+        StructField("red_cards", IntegerType(), True),
+        StructField("penalty_won", IntegerType(), True),
+        StructField("penalty_committed", IntegerType(), True),
+        StructField("penalty_scored", IntegerType(), True),
+        StructField("penalty_missed", IntegerType(), True),
+        StructField("penalty_saved", IntegerType(), True),
+        StructField("ingested_at", TimestampType(), True),
+    ]
+)
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
@@ -83,17 +92,11 @@ def get_fixture_ids(league_id: int, season: int) -> list:
 
 
 def get_ingested_fixture_ids() -> set:
-    """Return fixture IDs that are stable (ingested > 7 days ago) or permanently
-    skipped. Fixtures ingested within 7 days are re-fetched to capture corrections.
-    """
+    """Return all fixture IDs already ingested or permanently skipped."""
     try:
-        cutoff = (
-            datetime.now(tz=timezone.utc) - timedelta(days=7)
-        ).isoformat()
-        ingested = spark.sql(f"""
+        ingested = spark.sql("""
             SELECT DISTINCT fixture_id
             FROM efua_data_platform.football_raw.raw_player_statistics
-            WHERE ingested_at < '{cutoff}'
         """).collect()
         skipped = spark.sql(f"""
             SELECT DISTINCT entity_id
@@ -101,17 +104,15 @@ def get_ingested_fixture_ids() -> set:
             WHERE endpoint = '{ENDPOINT}'
             AND status = 'skipped'
         """).collect()
-        return (
-            {row[0] for row in ingested}
-            | {row[0] for row in skipped if row[0] is not None}
-        )
+        return {row[0] for row in ingested} | {
+            row[0] for row in skipped if row[0] is not None
+        }
     except Exception:
         return set()
 
 
 def flatten_player_statistics(
-    fixture_id: int, team_id: int,
-    team_name: str, player: dict, stats: dict
+    fixture_id: int, team_id: int, team_name: str, player: dict, stats: dict
 ) -> dict:
     games = stats.get("games", {})
     shots = stats.get("shots", {})
@@ -144,7 +145,9 @@ def flatten_player_statistics(
         "saves": goals.get("saves"),
         "passes_total": passes.get("total"),
         "passes_key": passes.get("key"),
-        "pass_accuracy": str(passes.get("accuracy")) if passes.get("accuracy") else None,
+        "pass_accuracy": str(passes.get("accuracy"))
+        if passes.get("accuracy")
+        else None,
         "tackles_total": tackles.get("total"),
         "blocks": tackles.get("blocks"),
         "interceptions": tackles.get("interceptions"),
@@ -167,9 +170,11 @@ def flatten_player_statistics(
 
 
 def update_metadata(
-    endpoint: str, rows_inserted: int,
-    status: str, entity_id: int = None,
-    started_at: datetime = None
+    endpoint: str,
+    rows_inserted: int,
+    status: str,
+    entity_id: int = None,
+    started_at: datetime = None,
 ):
     now = datetime.now(tz=timezone.utc)
     entity_val = str(entity_id) if entity_id else "NULL"
@@ -189,15 +194,16 @@ def update_metadata(
 def load_player_statistics(stats: list) -> int:
     if not stats:
         return 0
-    fixture_ids_str = ", ".join(
-        str(fid) for fid in {s["fixture_id"] for s in stats}
-    )
+    fixture_ids_str = ", ".join(str(fid) for fid in {s["fixture_id"] for s in stats})
     df = spark.createDataFrame(stats, schema=PLAYER_STATS_SCHEMA)
     df = df.dropDuplicates(["fixture_id", "team_id", "player_id"])
+    df.cache()
+    count = df.count()
     df.write.mode("overwrite").option(
         "replaceWhere", f"fixture_id IN ({fixture_ids_str})"
     ).saveAsTable("efua_data_platform.football_raw.raw_player_statistics")
-    return df.count()
+    df.unpersist()
+    return count
 
 
 def log_skipped_fixtures_bulk(fixture_ids: list):
@@ -245,23 +251,25 @@ def main():
             current_entity_id = league_id
             all_fixture_ids = get_fixture_ids(league_id, season)
             new_fixture_ids = [
-                fid for fid in all_fixture_ids
-                if fid not in ingested_fixture_ids
+                fid for fid in all_fixture_ids if fid not in ingested_fixture_ids
             ]
             if not new_fixture_ids:
-                print(f"  League {league_id} season {season} "
-                      f"— no new fixtures, skipping")
+                print(
+                    f"  League {league_id} season {season} "
+                    f"— no new fixtures, skipping"
+                )
                 continue
-            print(f"\n  Fetching player stats for league {league_id} "
-                  f"season {season}: {len(new_fixture_ids)} new fixture(s) "
-                  f"(of {len(all_fixture_ids)} total)...")
+            print(
+                f"\n  Fetching player stats for league {league_id} "
+                f"season {season}: {len(new_fixture_ids)} new fixture(s) "
+                f"(of {len(all_fixture_ids)} total)..."
+            )
             all_stats = []
             total_rows = 0
             skipped_fixtures = []
             for fixture_id in new_fixture_ids:
                 response = fetch_from_api(
-                    "fixtures/players",
-                    params={"fixture": fixture_id}
+                    "fixtures/players", params={"fixture": fixture_id}
                 )
                 records = response.get("response", [])
                 if not records:
@@ -273,47 +281,43 @@ def main():
                     team_name = team.get("name")
                     for player_record in record.get("players", []):
                         player = player_record.get("player", {})
-                        statistics = player_record.get(
-                            "statistics", [{}]
-                        )[0]
+                        statistics = player_record.get("statistics", [{}])[0]
                         all_stats.append(
                             flatten_player_statistics(
-                                fixture_id, team_id,
-                                team_name, player, statistics
+                                fixture_id, team_id, team_name, player, statistics
                             )
                         )
                 # batch write every 100 fixtures (approx 44 players each)
                 if len(all_stats) >= 100 * 44:
                     stat_rows = load_player_statistics(all_stats)
                     total_rows += stat_rows
-                    ingested_fixture_ids.update(
-                        s["fixture_id"] for s in all_stats
-                    )
+                    ingested_fixture_ids.update(s["fixture_id"] for s in all_stats)
                     print(f"  ✅ Batch loaded {stat_rows} player stats")
                     all_stats = []
             if all_stats:
                 stat_rows = load_player_statistics(all_stats)
                 total_rows += stat_rows
-                ingested_fixture_ids.update(
-                    s["fixture_id"] for s in all_stats
-                )
+                ingested_fixture_ids.update(s["fixture_id"] for s in all_stats)
                 print(f"  ✅ Loaded {stat_rows} player stats")
             if skipped_fixtures:
                 log_skipped_fixtures_bulk(skipped_fixtures)
                 ingested_fixture_ids.update(skipped_fixtures)
-                print(f"  ⏭️  Logged {len(skipped_fixtures)} fixtures "
-                      f"with no API data (won't re-query)")
+                print(
+                    f"  ⏭️  Logged {len(skipped_fixtures)} fixtures "
+                    f"with no API data (won't re-query)"
+                )
             update_metadata(
                 f"{ENDPOINT}_{season}",
-                total_rows, "success", league_id,
-                started_at=started_at
+                total_rows,
+                "success",
+                league_id,
+                started_at=started_at,
             )
         print("\n🎉 Player statistics ingestion complete!")
     except Exception as e:
         if current_endpoint:
             update_metadata(
-                current_endpoint, 0, "failed",
-                current_entity_id, started_at
+                current_endpoint, 0, "failed", current_entity_id, started_at
             )
         print(f"❌ Error: {e}")
         raise
