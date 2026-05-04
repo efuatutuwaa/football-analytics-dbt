@@ -2,7 +2,13 @@ import time
 import requests
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
+from pyspark.sql.types import (
+    StructType,
+    StructField,
+    StringType,
+    IntegerType,
+    TimestampType,
+)
 
 from constants import LEAGUE_IDS, SEASONS
 
@@ -14,40 +20,42 @@ ENDPOINT = "standings"
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
 
-STANDING_SCHEMA = StructType([
-    StructField("league_id", IntegerType(), True),
-    StructField("league_name", StringType(), True),
-    StructField("league_season", IntegerType(), True),
-    StructField("team_id", IntegerType(), True),
-    StructField("team_name", StringType(), True),
-    StructField("rank", IntegerType(), True),
-    StructField("points", IntegerType(), True),
-    StructField("goals_diff", IntegerType(), True),
-    StructField("group_name", StringType(), True),
-    StructField("form", StringType(), True),
-    StructField("status", StringType(), True),
-    StructField("description", StringType(), True),
-    StructField("all_played", IntegerType(), True),
-    StructField("all_wins", IntegerType(), True),
-    StructField("all_draws", IntegerType(), True),
-    StructField("all_losses", IntegerType(), True),
-    StructField("all_goals_for", IntegerType(), True),
-    StructField("all_goals_against", IntegerType(), True),
-    StructField("home_played", IntegerType(), True),
-    StructField("home_wins", IntegerType(), True),
-    StructField("home_draws", IntegerType(), True),
-    StructField("home_losses", IntegerType(), True),
-    StructField("home_goals_for", IntegerType(), True),
-    StructField("home_goals_against", IntegerType(), True),
-    StructField("away_played", IntegerType(), True),
-    StructField("away_wins", IntegerType(), True),
-    StructField("away_draws", IntegerType(), True),
-    StructField("away_losses", IntegerType(), True),
-    StructField("away_goals_for", IntegerType(), True),
-    StructField("away_goals_against", IntegerType(), True),
-    StructField("last_updated", TimestampType(), True),
-    StructField("ingested_at", TimestampType(), True),
-])
+STANDING_SCHEMA = StructType(
+    [
+        StructField("league_id", IntegerType(), True),
+        StructField("league_name", StringType(), True),
+        StructField("league_season", IntegerType(), True),
+        StructField("team_id", IntegerType(), True),
+        StructField("team_name", StringType(), True),
+        StructField("rank", IntegerType(), True),
+        StructField("points", IntegerType(), True),
+        StructField("goals_diff", IntegerType(), True),
+        StructField("group_name", StringType(), True),
+        StructField("form", StringType(), True),
+        StructField("status", StringType(), True),
+        StructField("description", StringType(), True),
+        StructField("all_played", IntegerType(), True),
+        StructField("all_wins", IntegerType(), True),
+        StructField("all_draws", IntegerType(), True),
+        StructField("all_losses", IntegerType(), True),
+        StructField("all_goals_for", IntegerType(), True),
+        StructField("all_goals_against", IntegerType(), True),
+        StructField("home_played", IntegerType(), True),
+        StructField("home_wins", IntegerType(), True),
+        StructField("home_draws", IntegerType(), True),
+        StructField("home_losses", IntegerType(), True),
+        StructField("home_goals_for", IntegerType(), True),
+        StructField("home_goals_against", IntegerType(), True),
+        StructField("away_played", IntegerType(), True),
+        StructField("away_wins", IntegerType(), True),
+        StructField("away_draws", IntegerType(), True),
+        StructField("away_losses", IntegerType(), True),
+        StructField("away_goals_for", IntegerType(), True),
+        StructField("away_goals_against", IntegerType(), True),
+        StructField("last_updated", TimestampType(), True),
+        StructField("ingested_at", TimestampType(), True),
+    ]
+)
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
@@ -75,8 +83,7 @@ def _parse_ts(val: str):
 
 
 def flatten_standing(
-    league_id: int, league_name: str,
-    season: int, record: dict
+    league_id: int, league_name: str, season: int, record: dict
 ) -> dict:
     team = record.get("team", {})
     all_stats = record.get("all", {})
@@ -151,8 +158,7 @@ def should_refetch_standings(league_id: int, season: int) -> bool:
         return True
     current_year = datetime.now().year
     days_since = (
-        datetime.now(tz=timezone.utc)
-        - last_ingested.replace(tzinfo=timezone.utc)
+        datetime.now(tz=timezone.utc) - last_ingested.replace(tzinfo=timezone.utc)
     ).days
     if season >= current_year - 1:
         return days_since >= 7
@@ -160,9 +166,11 @@ def should_refetch_standings(league_id: int, season: int) -> bool:
 
 
 def update_metadata(
-    endpoint: str, rows_inserted: int,
-    status: str, entity_id: int = None,
-    started_at: datetime = None
+    endpoint: str,
+    rows_inserted: int,
+    status: str,
+    entity_id: int = None,
+    started_at: datetime = None,
 ):
     now = datetime.now(tz=timezone.utc)
     entity_val = str(entity_id) if entity_id else "NULL"
@@ -183,6 +191,9 @@ def load_standings(standings: list) -> int:
     if not standings:
         return 0
     df = spark.createDataFrame(standings, schema=STANDING_SCHEMA)
+    df = df.dropDuplicates(["league_id", "league_season", "team_id", "group_name"])
+    df.cache()
+    count = df.count()
     df.createOrReplaceTempView("standings_staging")
     spark.sql("""
         MERGE INTO efua_data_platform.football_raw.raw_standings AS target
@@ -190,10 +201,12 @@ def load_standings(standings: list) -> int:
         ON target.league_id = source.league_id
         AND target.league_season = source.league_season
         AND target.team_id = source.team_id
+        AND target.group_name = source.group_name
         WHEN MATCHED THEN UPDATE SET *
         WHEN NOT MATCHED THEN INSERT *
     """)
-    return len(standings)
+    df.unpersist()
+    return count
 
 
 def main():
@@ -207,17 +220,20 @@ def main():
             for season in SEASONS:
                 requests_made = 0
                 if not should_refetch_standings(league_id, season):
-                    print(f"  League {league_id} season {season} "
-                          f"— standings up to date, skipping")
+                    print(
+                        f"  League {league_id} season {season} "
+                        f"— standings up to date, skipping"
+                    )
                     continue
                 started_at = datetime.now(tz=timezone.utc)
                 current_endpoint = f"{ENDPOINT}_{season}"
                 current_entity_id = league_id
-                print(f"\n  Fetching standings for league "
-                      f"{league_id} season {season}...")
+                print(
+                    f"\n  Fetching standings for league "
+                    f"{league_id} season {season}..."
+                )
                 response = fetch_from_api(
-                    ENDPOINT,
-                    params={"league": league_id, "season": season}
+                    ENDPOINT, params={"league": league_id, "season": season}
                 )
                 records = response.get("response", [])
                 if not records:
@@ -231,23 +247,23 @@ def main():
                         for standing in group:
                             all_standings.append(
                                 flatten_standing(
-                                    league_id, league_name,
-                                    season, standing
+                                    league_id, league_name, season, standing
                                 )
                             )
                 standing_rows = load_standings(all_standings)
                 print(f"  ✅ Refreshed {standing_rows} standings")
                 update_metadata(
                     f"{ENDPOINT}_{season}",
-                    standing_rows, "success", league_id,
-                    started_at=started_at
+                    standing_rows,
+                    "success",
+                    league_id,
+                    started_at=started_at,
                 )
         print("\n🎉 Standings ingestion complete!")
     except Exception as e:
         if current_endpoint:
             update_metadata(
-                current_endpoint, 0, "failed",
-                current_entity_id, started_at
+                current_endpoint, 0, "failed", current_entity_id, started_at
             )
         print(f"❌ Error: {e}")
         raise
