@@ -429,12 +429,16 @@ sources:
 
       - name: raw_standings
         description: League table standings per team, season, and matchweek.
+        freshness:
+          warn_after: {count: 7, period: day}
+          error_after: {count: 14, period: day}
         tests:
           - dbt_utils.unique_combination_of_columns:
               combination_of_columns:
                 - league_id
                 - league_season
                 - team_id
+                - group_name
         columns:
           - name: league_id
             tests: [not_null]
