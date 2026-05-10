@@ -14,6 +14,7 @@ with source as (
         -- metadata
         cast(ingested_at as timestamp) as ingested_at
     from {{ source('football_raw', 'raw_venues') }}
+    qualify row_number() over (partition by venue_id order by ingested_at desc) = 1
 )
 
 select * from source

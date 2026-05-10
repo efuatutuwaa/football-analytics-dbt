@@ -16,6 +16,7 @@ with source as (
         -- metadata
         cast(ingested_at as timestamp) as ingested_at
     from {{ source('football_raw', 'raw_team_squads') }}
+    qualify row_number() over (partition by team_id, player_id order by ingested_at desc) = 1
 )
 
 select * from source
