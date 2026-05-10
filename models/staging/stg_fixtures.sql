@@ -1,4 +1,8 @@
-{{ config(materialized='table') }}
+{{ config(
+    materialized='incremental',
+    unique_key='fixture_id',
+    incremental_strategy='merge'
+) }}
 
 with source as (
     select
@@ -36,6 +40,9 @@ with source as (
         timezone,
         cast(ingested_at as timestamp) as ingested_at
     from {{ source('football_raw', 'raw_fixtures') }}
+    {% if is_incremental() %}
+        where ingested_at > (select max(ingested_at) from {{ this }})
+    {% endif %}
 )
 
 select * from source
