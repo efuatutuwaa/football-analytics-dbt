@@ -17,6 +17,10 @@ with source as (
         cast(last_updated as timestamp) as last_updated,
         cast(ingested_at as timestamp) as ingested_at
     from {{ source('football_raw', 'raw_transfers') }}
+    qualify row_number() over (
+        partition by player_id, transfer_date, team_in_id, team_out_id
+        order by ingested_at desc
+    ) = 1
 )
 
 select * from source

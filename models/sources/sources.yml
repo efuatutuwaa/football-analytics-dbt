@@ -171,7 +171,7 @@ sources:
             data_tests: [not_null]
 
       - name: raw_player_statistics
-        description: Per-fixture player performance statistics.
+        description: One row per player per team per fixture. INSERT-only after match completion. Refreshed daily alongside raw_fixtures for current seasons.
         data_tests:
           - dbt_utils.unique_combination_of_columns:
               arguments:
@@ -298,7 +298,7 @@ sources:
             data_tests: [not_null]
 
       - name: raw_fixtures
-        description: Match fixtures with venue, status, and team information.
+        description: One row per fixture. Upserted via MERGE on fixture_id daily for current seasons to capture status transitions (NS → HT → FT). Historical seasons are static.
         columns:
           - name: fixture_id
             data_tests: [not_null, unique]
@@ -353,7 +353,7 @@ sources:
             data_tests: [not_null]
 
       - name: raw_fixture_events
-        description: In-match events (goals, cards, substitutions) per fixture. Multiple events per player per match are expected.
+        description: One row per event per fixture (goals, cards, substitutions, VAR). Multiple rows per player per match are expected. INSERT-only after match completion. Refreshed daily alongside raw_fixtures.
         columns:
           - name: fixture_id
             data_tests: [not_null]
@@ -373,7 +373,7 @@ sources:
             data_tests: [not_null]
 
       - name: raw_fixture_lineups
-        description: Team formation and coach per fixture.
+        description: One row per team per fixture (two rows per fixture). INSERT-only when lineup is released, typically around kick-off. Refreshed daily alongside raw_fixtures.
         data_tests:
           - dbt_utils.unique_combination_of_columns:
               arguments:
@@ -393,7 +393,7 @@ sources:
             data_tests: [not_null]
 
       - name: raw_fixture_lineup_players
-        description: Individual player lineup details per fixture and team.
+        description: One row per player per team per fixture covering starters and substitutes. INSERT-only when lineup is released. Refreshed daily alongside raw_fixtures.
         data_tests:
           - dbt_utils.unique_combination_of_columns:
               arguments:
@@ -417,7 +417,7 @@ sources:
             data_tests: [not_null]
 
       - name: raw_fixture_statistics
-        description: Team-level match statistics per fixture (shots, passes, cards, etc).
+        description: One row per team per fixture (two rows per fixture). INSERT-only after match completion. Refreshed daily alongside raw_fixtures for current seasons.
         data_tests:
           - dbt_utils.unique_combination_of_columns:
               arguments:
@@ -450,7 +450,7 @@ sources:
             data_tests: [not_null]
 
       - name: raw_standings
-        description: League table standings per team, season, and matchweek.
+        description: Current standings snapshot per team per league-season. Upserted via MERGE on (league_id, league_season, team_id, group_name) weekly. One row per team per league-season group.
         config:
           freshness:
             warn_after: {count: 7, period: day}

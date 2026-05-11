@@ -188,7 +188,7 @@ models:
   - name: stg_transfers
     description: >
       Player transfer history. Re-fetched on a schedule sensitive to transfer
-      windows. Deduplicated on (player_id, transfer_date, new_team_id).
+      windows. Deduplicated on (player_id, transfer_date, new_team_id, previous_team_id).
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -196,6 +196,7 @@ models:
               - player_id
               - transfer_date
               - new_team_id
+              - previous_team_id
     columns:
       - name: player_id
         data_tests:
