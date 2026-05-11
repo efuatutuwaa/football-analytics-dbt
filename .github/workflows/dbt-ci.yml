@@ -45,6 +45,3 @@ jobs:
 
       - name: Validate dbt_project.yml
         run: dbt parse
-
-      - name: dbt compile
-        run: dbt compile

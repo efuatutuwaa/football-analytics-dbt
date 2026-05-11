@@ -1,0 +1,690 @@
+version: 2
+
+models:
+
+  # ─────────────────────────────────────────
+  # Reference / lookup tables
+  # ─────────────────────────────────────────
+
+  - name: stg_countries
+    description: One row per country returned by the API.
+    columns:
+      - name: country_name
+        description: Full country name (natural key).
+        data_tests:
+          - not_null
+          - unique
+      - name: country_code
+        description: ISO 2-letter country code. Null for some regional entries.
+      - name: country_flag_url
+        description: URL to the country flag image.
+      - name: ingested_at
+        description: UTC timestamp when this row was written.
+        data_tests:
+          - not_null
+
+  - name: stg_leagues
+    description: One row per league / competition.
+    columns:
+      - name: league_id
+        description: Surrogate key assigned by API-Football.
+        data_tests:
+          - not_null
+          - unique
+      - name: league_name
+        data_tests:
+          - not_null
+      - name: league_type
+        description: "e.g. League, Cup."
+      - name: league_logo_url
+      - name: country_name
+      - name: country_code
+      - name: country_flag_url
+      - name: ingested_at
+        data_tests:
+          - not_null
+
+  - name: stg_league_seasons
+    description: Coverage metadata for each league-season combination.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - league_id
+              - season_year
+    columns:
+      - name: league_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_leagues')
+                field: league_id
+      - name: season_year
+        data_tests:
+          - not_null
+      - name: season_start
+        description: Date the season begins.
+      - name: season_end
+        description: Date the season ends.
+      - name: is_current_season
+        description: Boolean flag set by the API.
+      - name: coverage_fixtures_events
+      - name: coverage_fixtures_lineups
+      - name: coverage_standings
+      - name: coverage_players
+      - name: coverage_top_scorers
+      - name: coverage_injuries
+      - name: coverage_predictions
+      - name: coverage_odds
+      - name: ingested_at
+        data_tests:
+          - not_null
+
+  - name: stg_teams
+    description: One row per club / national team.
+    columns:
+      - name: team_id
+        data_tests:
+          - not_null
+          - unique
+      - name: team_name
+        data_tests:
+          - not_null
+      - name: team_code
+        description: Short 3-letter code (e.g. ARS, MCI).
+      - name: team_country
+      - name: founded_year
+      - name: is_national_team
+        description: True for international sides.
+      - name: team_logo_url
+      - name: ingested_at
+        data_tests:
+          - not_null
+
+  - name: stg_team_seasons
+    description: >
+      Bridge table linking teams to the league-seasons they participated in.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - team_id
+              - league_id
+              - season_year
+    columns:
+      - name: team_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_teams')
+                field: team_id
+      - name: league_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_leagues')
+                field: league_id
+      - name: season_year
+        data_tests:
+          - not_null
+      - name: ingested_at
+        data_tests:
+          - not_null
+
+  - name: stg_venues
+    description: Stadium and ground information.
+    columns:
+      - name: venue_id
+        data_tests:
+          - not_null
+          - unique
+      - name: venue_name
+        data_tests:
+          - not_null
+      - name: venue_address
+      - name: venue_city
+      - name: venue_capacity
+      - name: venue_surface
+        description: "e.g. grass, artificial turf."
+      - name: venue_image_url
+      - name: ingested_at
+        data_tests:
+          - not_null
+
+  # ─────────────────────────────────────────
+  # People
+  # ─────────────────────────────────────────
+
+  - name: stg_players
+    description: Player biographical data. Re-fetched annually.
+    columns:
+      - name: player_id
+        data_tests:
+          - not_null
+          - unique
+      - name: player_name
+        data_tests:
+          - not_null
+      - name: firstname
+      - name: lastname
+      - name: age
+      - name: birth_date
+      - name: birth_place
+      - name: birth_country
+      - name: nationality
+      - name: height
+        description: Height string as returned by API (e.g. "180 cm").
+      - name: weight
+        description: Weight string as returned by API (e.g. "75 kg").
+      - name: photo_url
+      - name: ingested_at
+        data_tests:
+          - not_null
+
+
+  - name: stg_transfers
+    description: >
+      Player transfer history. Re-fetched on a schedule sensitive to transfer
+      windows. Deduplicated on (player_id, transfer_date, new_team_id, previous_team_id).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - player_id
+              - transfer_date
+              - new_team_id
+              - previous_team_id
+    columns:
+      - name: player_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_players')
+                field: player_id
+      - name: player_name
+      - name: transfer_date
+      - name: transfer_type
+        description: "e.g. Loan, Free, N/A."
+      - name: new_team_id
+        description: Club the player joined.
+      - name: new_team_name
+      - name: previous_team_id
+        description: Club the player left.
+      - name: previous_team_name
+      - name: last_updated
+        description: Timestamp from the API indicating when the transfer record was last updated.
+      - name: ingested_at
+        data_tests:
+          - not_null
+
+  # ─────────────────────────────────────────
+  # Fixtures
+  # ─────────────────────────────────────────
+
+  - name: stg_fixtures
+    description: >
+      One row per fixture. Re-fetched daily for current seasons via MERGE so
+      status changes (NS → FT) are captured.
+    columns:
+      - name: fixture_id
+        data_tests:
+          - not_null
+          - unique
+      - name: referee
+      - name: timezone
+      - name: match_date
+        description: Kick-off datetime in the fixture timezone.
+        data_tests:
+          - not_null
+      - name: match_timestamp
+        description: Unix epoch of kick-off.
+      - name: first_period_start
+        description: Unix epoch of first half kick-off.
+      - name: second_period_start
+        description: Unix epoch of second half kick-off.
+      - name: venue_id
+      - name: venue_name
+      - name: venue_city
+      - name: status_long
+        description: "e.g. Match Finished, Not Started."
+      - name: status_short
+        description: "Short status code: FT, NS, HT, LIVE, etc."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['FT', 'NS', 'HT', 'LIVE', 'ET', 'PEN', 'BT', 'P', 'SUSP',
+                         'INT', 'PST', 'CANC', 'Canc', 'ABD', 'AWD', 'WO', 'AET']
+      - name: elapsed_minutes
+      - name: extra_time
+      - name: league_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_leagues')
+                field: league_id
+      - name: league_name
+      - name: league_country
+      - name: league_season
+        data_tests:
+          - not_null
+      - name: league_round
+      - name: home_team_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_teams')
+                field: team_id
+      - name: home_team_name
+      - name: home_team_winner
+        description: True / False / null (null when draw or not yet played).
+      - name: away_team_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_teams')
+                field: team_id
+      - name: away_team_name
+      - name: away_team_winner
+      - name: ingested_at
+        data_tests:
+          - not_null
+
+  - name: stg_fixture_scores
+    description: Final and period scores for each completed fixture.
+    columns:
+      - name: fixture_id
+        data_tests:
+          - not_null
+          - unique
+          - relationships:
+              arguments:
+                to: ref('stg_fixtures')
+                field: fixture_id
+      - name: halftime_home
+      - name: halftime_away
+      - name: fulltime_home
+      - name: fulltime_away
+      - name: extratime_home
+        description: Null if the match did not go to extra time.
+      - name: extratime_away
+      - name: penalty_home
+        description: Null if there was no penalty shootout.
+      - name: penalty_away
+      - name: ingested_at
+        data_tests:
+          - not_null
+
+  - name: stg_fixture_statistics
+    description: >
+      Team-level match statistics — one row per team per fixture
+      (two rows per fixture).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - fixture_id
+              - team_id
+    columns:
+      - name: fixture_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_fixtures')
+                field: fixture_id
+      - name: team_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_teams')
+                field: team_id
+      - name: team_name
+      - name: shots_on_goal
+      - name: shots_off_goal
+      - name: total_shots
+      - name: blocked_shots
+      - name: shots_inside_box
+      - name: shots_outside_box
+      - name: fouls
+      - name: corner_kicks
+      - name: offsides
+      - name: ball_possession
+        description: "Possession percentage string (e.g. '54%')."
+      - name: yellow_cards
+      - name: red_cards
+      - name: goalkeeper_saves
+      - name: total_passes
+      - name: accurate_passes
+      - name: pass_accuracy
+        description: "Pass accuracy percentage string (e.g. '83%')."
+      - name: ingested_at
+        data_tests:
+          - not_null
+
+  - name: stg_fixture_events
+    description: >
+      In-match events — goals, cards, substitutions etc.
+      One row per event per fixture.
+    columns:
+      - name: fixture_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_fixtures')
+                field: fixture_id
+      - name: elapsed_minutes
+        data_tests:
+          - not_null
+      - name: extra_minutes
+        description: Stoppage-time minute of the event, if applicable.
+      - name: team_id
+        data_tests:
+          - not_null
+      - name: team_name
+      - name: player_id
+      - name: player_name
+      - name: assist_player_id
+        description: Player who provided the assist (goals only).
+      - name: assist_player_name
+      - name: event_type
+        description: "e.g. goal, card, subst, var (normalised to lowercase)."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['goal', 'card', 'subst', 'var']
+      - name: event_detail
+        description: "e.g. Normal Goal, Yellow Card, Red Card."
+      - name: comments
+      - name: ingested_at
+        data_tests:
+          - not_null
+
+  - name: stg_fixture_lineups
+    description: >
+      Formation and coach for each team in each fixture.
+      Two rows per fixture (one per team).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - fixture_id
+              - team_id
+    columns:
+      - name: fixture_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_fixtures')
+                field: fixture_id
+      - name: team_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_teams')
+                field: team_id
+      - name: team_name
+      - name: formation
+        description: "Formation string (e.g. 4-3-3)."
+      - name: coach_id
+      - name: coach_name
+      - name: ingested_at
+        data_tests:
+          - not_null
+
+  - name: stg_fixture_lineup_players
+    description: >
+      Individual player lineup entries — starters and substitutes.
+      One row per player per fixture per team.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - fixture_id
+              - team_id
+              - player_id
+    columns:
+      - name: fixture_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_fixtures')
+                field: fixture_id
+      - name: team_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_teams')
+                field: team_id
+      - name: player_id
+        data_tests:
+          - not_null:
+              config:
+                severity: warn
+          - relationships:
+              arguments:
+                to: ref('stg_players')
+                field: player_id
+              config:
+                severity: warn
+      - name: player_name
+      - name: jersey_number
+      - name: position
+        description: "e.g. G, D, M, F."
+      - name: grid_position
+        description: "Grid coordinates on the formation (e.g. 1:1). Null for substitutes."
+      - name: is_starter
+        description: True for starting XI, False for substitutes.
+        data_tests:
+          - not_null
+      - name: ingested_at
+        data_tests:
+          - not_null
+
+  # ─────────────────────────────────────────
+  # Player match statistics
+  # ─────────────────────────────────────────
+
+  - name: stg_player_statistics
+    description: >
+      Per-player per-fixture statistics. One row per player per team per fixture.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - fixture_id
+              - team_id
+              - player_id
+    columns:
+      - name: fixture_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_fixtures')
+                field: fixture_id
+      - name: team_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_teams')
+                field: team_id
+      - name: team_name
+      - name: player_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_players')
+                field: player_id
+              config:
+                severity: warn
+      - name: player_name
+      - name: minutes_played
+      - name: jersey_number
+      - name: player_position
+      - name: rating
+        description: Player rating string as given by the API (e.g. '7.3').
+      - name: is_captain
+      - name: is_substitute
+      - name: offsides
+      - name: shots_total
+      - name: shots_on_target
+      - name: goals_scored
+      - name: goals_conceded
+        description: Goals conceded (relevant for goalkeepers).
+      - name: assists
+      - name: saves
+        description: Goalkeeper saves.
+      - name: passes_total
+      - name: passes_key
+        description: Key passes (leading to a shot).
+      - name: pass_accuracy
+      - name: tackles_total
+      - name: blocks
+      - name: interceptions
+      - name: duels_total
+      - name: duels_won
+      - name: dribbles_attempted
+      - name: dribbles_success
+      - name: dribbles_past
+        description: Times the player was dribbled past.
+      - name: fouls_drawn
+      - name: fouls_committed
+      - name: yellow_cards
+      - name: red_cards
+      - name: penalty_won
+      - name: penalty_committed
+      - name: penalty_scored
+      - name: penalty_missed
+      - name: penalty_saved
+        description: Penalties saved (goalkeepers).
+      - name: ingested_at
+        data_tests:
+          - not_null
+
+  # ─────────────────────────────────────────
+  # Standings
+  # ─────────────────────────────────────────
+
+  - name: stg_standings
+    description: >
+      Current league table snapshot per league-season. Refreshed weekly via
+      MERGE on (league_id, league_season, team_id).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - league_id
+              - league_season
+              - team_id
+              - group_name
+    columns:
+      - name: league_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_leagues')
+                field: league_id
+      - name: league_name
+      - name: league_season
+        data_tests:
+          - not_null
+      - name: team_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_teams')
+                field: team_id
+      - name: team_name
+      - name: team_rank
+        data_tests:
+          - not_null
+      - name: team_points
+        data_tests:
+          - not_null
+      - name: goals_difference
+      - name: group_name
+        description: Group name for cup competitions with multiple groups.
+      - name: form
+        description: "Last 5 results string (e.g. WWDLW)."
+      - name: standing_status
+      - name: standing_description
+        description: "e.g. Promotion, Relegation."
+      - name: matches_played
+      - name: matches_won
+      - name: matches_drawn
+      - name: matches_lost
+      - name: goals_for
+      - name: goals_against
+      - name: home_matches_played
+      - name: home_matches_won
+      - name: home_matches_drawn
+      - name: home_matches_lost
+      - name: home_goals_for
+      - name: home_goals_against
+      - name: away_matches_played
+      - name: away_matches_won
+      - name: away_matches_drawn
+      - name: away_matches_lost
+      - name: away_goals_for
+      - name: away_goals_against
+      - name: last_updated
+        description: Timestamp from the API of the last standings update.
+      - name: ingested_at
+        data_tests:
+          - not_null
+
+  - name: stg_team_squads
+    description: >
+      Current squad roster per team. One row per player per team.
+      Refreshed quarterly, weekly during transfer windows.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - team_id
+              - player_id
+    columns:
+      - name: team_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_teams')
+                field: team_id
+      - name: player_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_players')
+                field: player_id
+              config:
+                severity: warn
+      - name: team_name
+      - name: player_name
+      - name: player_age
+      - name: jersey_number
+      - name: player_position
+      - name: photo_url
+      - name: ingested_at
+        data_tests:
+          - not_null

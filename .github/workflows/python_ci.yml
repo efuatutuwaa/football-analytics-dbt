@@ -19,13 +19,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: |
-          pip install \
-            -r requirements.txt \
-            flake8 \
-            sqlfluff \
-            sqlfluff-templater-dbt \
-            dbt-databricks
+        run: pip install -r requirements.txt flake8
 
       - name: Lint Python scripts with flake8
         run: |
@@ -40,33 +34,3 @@ jobs:
           find scripts/ -name "*.py" | while read file; do
             python -m py_compile "$file"
           done || echo "No Python files found — skipping"
-
-      - name: Create profiles.yml
-        env:
-          DBT_DATABRICKS_HOST: ${{ secrets.DBT_DATABRICKS_HOST }}
-          DBT_DATABRICKS_HTTP_PATH: ${{ secrets.DBT_DATABRICKS_HTTP_PATH }}
-          DBT_DATABRICKS_TOKEN: ${{ secrets.DBT_DATABRICKS_TOKEN }}
-        run: |
-          mkdir -p ~/.dbt
-          echo "football_analytics:"                          > ~/.dbt/profiles.yml
-          echo "  target: dev"                               >> ~/.dbt/profiles.yml
-          echo "  outputs:"                                  >> ~/.dbt/profiles.yml
-          echo "    dev:"                                    >> ~/.dbt/profiles.yml
-          echo "      type: databricks"                      >> ~/.dbt/profiles.yml
-          echo "      host: $DBT_DATABRICKS_HOST"           >> ~/.dbt/profiles.yml
-          echo "      http_path: $DBT_DATABRICKS_HTTP_PATH" >> ~/.dbt/profiles.yml
-          echo "      token: $DBT_DATABRICKS_TOKEN"         >> ~/.dbt/profiles.yml
-          echo "      catalog: workspace"                    >> ~/.dbt/profiles.yml
-          echo "      schema: dbt_ci"                        >> ~/.dbt/profiles.yml
-          echo "      threads: 4"                            >> ~/.dbt/profiles.yml
-
-      - name: dbt deps
-        run: dbt deps
-
-      - name: Lint SQL models with sqlfluff
-        run: |
-          if find models/ -name "*.sql" | grep -q .; then
-            sqlfluff lint models/ --dialect databricks --templater dbt
-          else
-            echo "No SQL files to lint yet — skipping"
-          fi

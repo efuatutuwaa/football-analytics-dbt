@@ -5,52 +5,57 @@ sources:
     database: efua_data_platform
     schema: football_raw
     description: Raw ingested data from the API-Football v3 API via PySpark ingestion scripts.
-    loaded_at_field: ingested_at
-    freshness:
-      warn_after: {count: 36, period: hour}
-      error_after: {count: 48, period: hour}
+    config:
+      loaded_at_field: ingested_at
+      freshness:
+        warn_after: {count: 36, period: hour}
+        error_after: {count: 48, period: hour}
 
     tables:
       - name: raw_countries
         description: Country reference data. Static — refreshed annually.
-        freshness: null
+        config:
+          freshness: null
         columns:
           - name: country_name
-            tests: [not_null]
+            data_tests: [not_null]
           - name: country_code
           - name: country_flag_url
           - name: ingested_at
-            tests: [not_null]
+            data_tests: [not_null]
 
       - name: raw_leagues
         description: League metadata for all tracked competitions. Static — refreshed annually.
-        freshness: null
+        config:
+          freshness: null
         columns:
           - name: league_id
-            tests: [not_null, unique]
+            data_tests: [not_null, unique]
           - name: league_name
-            tests: [not_null]
+            data_tests: [not_null]
           - name: league_type
           - name: league_logo_url
           - name: country_name
           - name: country_code
           - name: country_flag_url
           - name: ingested_at
-            tests: [not_null]
+            data_tests: [not_null]
 
       - name: raw_league_seasons
         description: Season-level metadata per league including coverage flags. Refreshed annually.
-        freshness: null
-        tests:
+        config:
+          freshness: null
+        data_tests:
           - dbt_utils.unique_combination_of_columns:
-              combination_of_columns:
-                - league_id
-                - season_year
+              arguments:
+                combination_of_columns:
+                  - league_id
+                  - season_year
         columns:
           - name: league_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: season_year
-            tests: [not_null]
+            data_tests: [not_null]
           - name: season_start
           - name: season_end
           - name: is_current_season
@@ -63,30 +68,32 @@ sources:
           - name: coverage_predictions
           - name: coverage_odds
           - name: ingested_at
-            tests: [not_null]
+            data_tests: [not_null]
 
       - name: raw_teams
         description: Team profiles across all tracked leagues and seasons. Refreshed annually.
-        freshness: null
+        config:
+          freshness: null
         columns:
           - name: team_id
-            tests: [not_null, unique]
+            data_tests: [not_null, unique]
           - name: team_name
-            tests: [not_null]
+            data_tests: [not_null]
           - name: team_code
           - name: team_country
           - name: founded_year
           - name: is_national_team
           - name: team_logo_url
           - name: ingested_at
-            tests: [not_null]
+            data_tests: [not_null]
 
       - name: raw_venues
         description: Stadium and venue information linked to teams. Refreshed annually.
-        freshness: null
+        config:
+          freshness: null
         columns:
           - name: venue_id
-            tests: [not_null, unique]
+            data_tests: [not_null, unique]
           - name: venue_name
           - name: venue_address
           - name: venue_city
@@ -94,57 +101,62 @@ sources:
           - name: venue_surface
           - name: venue_image_url
           - name: ingested_at
-            tests: [not_null]
+            data_tests: [not_null]
 
       - name: raw_team_seasons
         description: Maps teams to the leagues and seasons they competed in. Refreshed annually.
-        freshness: null
-        tests:
+        config:
+          freshness: null
+        data_tests:
           - dbt_utils.unique_combination_of_columns:
-              combination_of_columns:
-                - team_id
-                - league_id
-                - season_year
+              arguments:
+                combination_of_columns:
+                  - team_id
+                  - league_id
+                  - season_year
         columns:
           - name: team_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: league_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: season_year
-            tests: [not_null]
+            data_tests: [not_null]
           - name: ingested_at
-            tests: [not_null]
+            data_tests: [not_null]
 
       - name: raw_team_squads
         description: Current squad rosters per team fetched from the squads endpoint. Refreshed quarterly (weekly during transfer window).
-        freshness: null
-        tests:
+        config:
+          freshness: null
+        data_tests:
           - dbt_utils.unique_combination_of_columns:
-              combination_of_columns:
-                - team_id
-                - player_id
+              arguments:
+                combination_of_columns:
+                  - team_id
+                  - player_id
         columns:
           - name: team_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: team_name
           - name: player_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: player_name
           - name: player_age
           - name: jersey_number
           - name: position
           - name: photo_url
           - name: ingested_at
-            tests: [not_null]
+            data_tests: [not_null]
 
       - name: raw_players
         description: Player biographical data across all tracked leagues and seasons. Refreshed annually.
-        freshness: null
+        config:
+          freshness: null
         columns:
           - name: player_id
-            tests: [not_null, unique]
+            data_tests: [not_null, unique]
           - name: player_name
-            tests: [not_null]
+            data_tests: [not_null]
           - name: firstname
           - name: lastname
           - name: age
@@ -156,24 +168,25 @@ sources:
           - name: weight
           - name: photo_url
           - name: ingested_at
-            tests: [not_null]
+            data_tests: [not_null]
 
       - name: raw_player_statistics
-        description: Per-fixture player performance statistics.
-        tests:
+        description: One row per player per team per fixture. INSERT-only after match completion. Refreshed daily alongside raw_fixtures for current seasons.
+        data_tests:
           - dbt_utils.unique_combination_of_columns:
-              combination_of_columns:
-                - fixture_id
-                - team_id
-                - player_id
+              arguments:
+                combination_of_columns:
+                  - fixture_id
+                  - team_id
+                  - player_id
         columns:
           - name: fixture_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: team_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: team_name
           - name: player_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: player_name
           - name: minutes_played
           - name: jersey_number
@@ -209,16 +222,17 @@ sources:
           - name: penalty_missed
           - name: penalty_saved
           - name: ingested_at
-            tests: [not_null]
+            data_tests: [not_null]
 
       - name: raw_coaches
         description: Coach profiles with current team assignment. INSERT-only on new coach_id, so freshness only advances when a new coach is hired. Refreshed monthly (weekly during transfer window).
-        freshness: null
+        config:
+          freshness: null
         columns:
           - name: coach_id
-            tests: [not_null, unique]
+            data_tests: [not_null, unique]
           - name: coach_name
-            tests: [not_null]
+            data_tests: [not_null]
           - name: firstname
           - name: lastname
           - name: age
@@ -232,42 +246,46 @@ sources:
           - name: current_team_id
           - name: current_team_name
           - name: ingested_at
-            tests: [not_null]
+            data_tests: [not_null]
 
       - name: raw_coach_careers
         description: Full coaching career history per coach. Refreshed alongside raw_coaches.
-        freshness:
-          warn_after: {count: 7, period: day}
-          error_after: {count: 14, period: day}
-        tests:
+        config:
+          freshness:
+            warn_after: {count: 7, period: day}
+            error_after: {count: 14, period: day}
+        data_tests:
           - dbt_utils.unique_combination_of_columns:
-              combination_of_columns:
-                - coach_id
-                - team_id
-                - start_date
+              arguments:
+                combination_of_columns:
+                  - coach_id
+                  - team_id
+                  - start_date
         columns:
           - name: coach_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: coach_name
           - name: team_id
           - name: team_name
           - name: start_date
           - name: end_date
           - name: ingested_at
-            tests: [not_null]
+            data_tests: [not_null]
 
       - name: raw_transfers
         description: Player transfer history including loan and permanent moves. INSERT-only on new (player_id, transfer_date, team_in_id), so freshness only advances when a new transfer is recorded. Refreshed every 30 days (7 days during transfer window).
-        freshness: null
-        tests:
+        config:
+          freshness: null
+        data_tests:
           - dbt_utils.unique_combination_of_columns:
-              combination_of_columns:
-                - player_id
-                - transfer_date
-                - team_in_id
+              arguments:
+                combination_of_columns:
+                  - player_id
+                  - transfer_date
+                  - team_in_id
         columns:
           - name: player_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: player_name
           - name: transfer_date
           - name: transfer_type
@@ -277,13 +295,13 @@ sources:
           - name: team_out_name
           - name: last_updated
           - name: ingested_at
-            tests: [not_null]
+            data_tests: [not_null]
 
       - name: raw_fixtures
-        description: Match fixtures with venue, status, and team information.
+        description: One row per fixture. Upserted via MERGE on fixture_id daily for current seasons to capture status transitions (NS → HT → FT). Historical seasons are static.
         columns:
           - name: fixture_id
-            tests: [not_null, unique]
+            data_tests: [not_null, unique]
           - name: referee
           - name: timezone
           - name: match_date
@@ -298,30 +316,31 @@ sources:
           - name: elapsed_minutes
           - name: extra_time
           - name: league_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: league_name
           - name: league_country
           - name: league_season
           - name: league_round
           - name: home_team_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: home_team_name
           - name: home_team_winner
           - name: away_team_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: away_team_name
           - name: away_team_winner
           - name: ingested_at
-            tests: [not_null]
+            data_tests: [not_null]
 
       - name: raw_fixture_scores
         description: Halftime, fulltime, extratime, and penalty scores per fixture. Upserted via MERGE on every fixture refresh.
-        freshness:
-          warn_after: {count: 48, period: hour}
-          error_after: {count: 96, period: hour}
+        config:
+          freshness:
+            warn_after: {count: 48, period: hour}
+            error_after: {count: 96, period: hour}
         columns:
           - name: fixture_id
-            tests: [not_null, unique]
+            data_tests: [not_null, unique]
           - name: halftime_home
           - name: halftime_away
           - name: fulltime_home
@@ -331,17 +350,17 @@ sources:
           - name: penalty_home
           - name: penalty_away
           - name: ingested_at
-            tests: [not_null]
+            data_tests: [not_null]
 
       - name: raw_fixture_events
-        description: In-match events (goals, cards, substitutions) per fixture. Multiple events per player per match are expected.
+        description: One row per event per fixture (goals, cards, substitutions, VAR). Multiple rows per player per match are expected. INSERT-only after match completion. Refreshed daily alongside raw_fixtures.
         columns:
           - name: fixture_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: elapsed_minutes
           - name: extra_minutes
           - name: team_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: team_name
           - name: player_id
           - name: player_name
@@ -351,62 +370,65 @@ sources:
           - name: event_detail
           - name: comments
           - name: ingested_at
-            tests: [not_null]
+            data_tests: [not_null]
 
       - name: raw_fixture_lineups
-        description: Team formation and coach per fixture.
-        tests:
+        description: One row per team per fixture (two rows per fixture). INSERT-only when lineup is released, typically around kick-off. Refreshed daily alongside raw_fixtures.
+        data_tests:
           - dbt_utils.unique_combination_of_columns:
-              combination_of_columns:
-                - fixture_id
-                - team_id
+              arguments:
+                combination_of_columns:
+                  - fixture_id
+                  - team_id
         columns:
           - name: fixture_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: team_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: team_name
           - name: formation
           - name: coach_id
           - name: coach_name
           - name: ingested_at
-            tests: [not_null]
+            data_tests: [not_null]
 
       - name: raw_fixture_lineup_players
-        description: Individual player lineup details per fixture and team.
-        tests:
+        description: One row per player per team per fixture covering starters and substitutes. INSERT-only when lineup is released. Refreshed daily alongside raw_fixtures.
+        data_tests:
           - dbt_utils.unique_combination_of_columns:
-              combination_of_columns:
-                - fixture_id
-                - team_id
-                - player_id
+              arguments:
+                combination_of_columns:
+                  - fixture_id
+                  - team_id
+                  - player_id
         columns:
           - name: fixture_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: team_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: player_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: player_name
           - name: jersey_number
           - name: position
           - name: grid_position
           - name: is_starter
           - name: ingested_at
-            tests: [not_null]
+            data_tests: [not_null]
 
       - name: raw_fixture_statistics
-        description: Team-level match statistics per fixture (shots, passes, cards, etc).
-        tests:
+        description: One row per team per fixture (two rows per fixture). INSERT-only after match completion. Refreshed daily alongside raw_fixtures for current seasons.
+        data_tests:
           - dbt_utils.unique_combination_of_columns:
-              combination_of_columns:
-                - fixture_id
-                - team_id
+              arguments:
+                combination_of_columns:
+                  - fixture_id
+                  - team_id
         columns:
           - name: fixture_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: team_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: team_name
           - name: shots_on_goal
           - name: shots_off_goal
@@ -425,28 +447,30 @@ sources:
           - name: accurate_passes
           - name: pass_accuracy
           - name: ingested_at
-            tests: [not_null]
+            data_tests: [not_null]
 
       - name: raw_standings
-        description: League table standings per team, season, and matchweek.
-        freshness:
-          warn_after: {count: 7, period: day}
-          error_after: {count: 14, period: day}
-        tests:
+        description: Current standings snapshot per team per league-season. Upserted via MERGE on (league_id, league_season, team_id, group_name) weekly. One row per team per league-season group.
+        config:
+          freshness:
+            warn_after: {count: 7, period: day}
+            error_after: {count: 14, period: day}
+        data_tests:
           - dbt_utils.unique_combination_of_columns:
-              combination_of_columns:
-                - league_id
-                - league_season
-                - team_id
-                - group_name
+              arguments:
+                combination_of_columns:
+                  - league_id
+                  - league_season
+                  - team_id
+                  - group_name
         columns:
           - name: league_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: league_name
           - name: league_season
-            tests: [not_null]
+            data_tests: [not_null]
           - name: team_id
-            tests: [not_null]
+            data_tests: [not_null]
           - name: team_name
           - name: rank
           - name: points
@@ -475,4 +499,4 @@ sources:
           - name: away_goals_against
           - name: last_updated
           - name: ingested_at
-            tests: [not_null]
+            data_tests: [not_null]
