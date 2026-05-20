@@ -14,7 +14,7 @@ with source as (
         trim(player_name) as player_name,
         jersey_number,
         trim(position) as player_position,
-        rating,
+        try_cast(rating as double) as rating,
         is_captain,
         is_substitute,
         -- statistics
