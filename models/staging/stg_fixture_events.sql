@@ -24,7 +24,7 @@ with source as (
         extra_minutes,
         -- event details
         trim(lower(event_type)) as event_type,
-        trim(event_detail) as event_detail,
+        trim(lower(event_detail)) as event_detail,
         trim(comments) as event_comments,
         -- metadata
         cast(ingested_at as timestamp) as ingested_at
