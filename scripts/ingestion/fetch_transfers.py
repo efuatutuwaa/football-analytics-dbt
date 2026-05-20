@@ -262,7 +262,8 @@ def log_success_players_bulk(success_records: list):
         return
     now = datetime.now(tz=timezone.utc)
     values = ", ".join(
-        f"('{ENDPOINT}', {pid}, '{now.isoformat()}', {rows}, 1, 'success', '{now.isoformat()}', '{started.isoformat()}')"
+        f"('{ENDPOINT}', {pid}, '{now.isoformat()}', {rows}, 1, "
+        f"'success', '{now.isoformat()}', '{started.isoformat()}')"
         for pid, rows, started in success_records
     )
     spark.sql(f"""
