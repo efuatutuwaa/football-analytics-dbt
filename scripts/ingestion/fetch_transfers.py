@@ -3,8 +3,12 @@ import requests
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from pyspark.sql.types import (
-    StructType, StructField, StringType,
-    IntegerType, DateType, TimestampType
+    StructType,
+    StructField,
+    StringType,
+    IntegerType,
+    DateType,
+    TimestampType,
 )
 
 API_KEY = dbutils.secrets.get(scope="football", key="api_key")  # noqa: F821
@@ -45,37 +49,61 @@ def get_players_to_skip(in_window: bool) -> set:
     to skip based on re-fetch thresholds.
 
     Re-fetch strategy:
-    - Active players (played in last 30 days):
+    - Active players with new transfers found on last fetch:
       7 days in window, 30 days outside
       ← catches free agents and emergency loans
+    - Active players with no new transfers on last fetch (stable history):
+      90 days in window, 180 days outside
+      ← history is unlikely to change, avoid burning API quota
     - Inactive players:
       30 days in window, 90 days outside
 
     Returns set of player_ids to skip."""
     active_threshold = 7 if in_window else 30
+    stable_threshold = 90 if in_window else 180
     inactive_threshold = 30 if in_window else 90
     result = spark.sql(f"""
-        WITH latest_ingestion AS (
-            SELECT entity_id, MAX(last_ingested_at) AS last_ingested_at
-            FROM efua_data_platform.football_raw.ingestion_metadata
-            WHERE endpoint = '{ENDPOINT}'
-            AND status IN ('success', 'skipped')
-            GROUP BY entity_id
+        WITH latest_fetch AS (
+            SELECT
+                im.entity_id,
+                im.last_ingested_at,
+                im.rows_inserted,
+                im.status
+            FROM efua_data_platform.football_raw.ingestion_metadata im
+            INNER JOIN (
+                SELECT entity_id, MAX(last_ingested_at) AS last_ingested_at
+                FROM efua_data_platform.football_raw.ingestion_metadata
+                WHERE endpoint = '{ENDPOINT}'
+                AND status IN ('success', 'skipped')
+                GROUP BY entity_id
+            ) latest
+                ON im.entity_id = latest.entity_id
+                AND im.last_ingested_at = latest.last_ingested_at
+                AND im.endpoint = '{ENDPOINT}'
         ),
         recently_active AS (
             SELECT DISTINCT player_id
             FROM efua_data_platform.football_raw.raw_player_statistics
             WHERE ingested_at >= CURRENT_DATE - 30
         )
-        SELECT li.entity_id
-        FROM latest_ingestion li
-        LEFT JOIN recently_active ra ON li.entity_id = ra.player_id
+        SELECT lf.entity_id
+        FROM latest_fetch lf
+        LEFT JOIN recently_active ra ON lf.entity_id = ra.player_id
         WHERE (
+            -- active player, new transfers found last time
             ra.player_id IS NOT NULL
-            AND li.last_ingested_at >= CURRENT_TIMESTAMP - INTERVAL {active_threshold} DAYS
+            AND lf.rows_inserted > 0
+            AND lf.last_ingested_at >= CURRENT_TIMESTAMP - INTERVAL {active_threshold} DAYS
         ) OR (
+            -- active player, no new transfers last time (stable history)
+            ra.player_id IS NOT NULL
+            AND lf.rows_inserted = 0
+            AND lf.status = 'success'
+            AND lf.last_ingested_at >= CURRENT_TIMESTAMP - INTERVAL {stable_threshold} DAYS
+        ) OR (
+            -- inactive player
             ra.player_id IS NULL
-            AND li.last_ingested_at >= CURRENT_TIMESTAMP - INTERVAL {inactive_threshold} DAYS
+            AND lf.last_ingested_at >= CURRENT_TIMESTAMP - INTERVAL {inactive_threshold} DAYS
         )
     """).collect()
     return {row[0] for row in result}
@@ -129,10 +157,7 @@ def _parse_ts(val: str):
 
 
 def flatten_transfer(
-    player_id: int,
-    player_name: str,
-    last_updated: str,
-    transfer: dict
+    player_id: int, player_name: str, last_updated: str, transfer: dict
 ) -> dict:
     """Flatten transfer record from API response."""
     teams = transfer.get("teams", {})
@@ -153,9 +178,11 @@ def flatten_transfer(
 
 
 def update_metadata(
-    endpoint: str, rows_inserted: int,
-    status: str, entity_id: int = None,
-    started_at: datetime = None
+    endpoint: str,
+    rows_inserted: int,
+    status: str,
+    entity_id: int = None,
+    started_at: datetime = None,
 ):
     """Update ingestion metadata after each run."""
     now = datetime.now(tz=timezone.utc)
@@ -187,40 +214,27 @@ def get_existing_transfer_combos() -> set:
     }
 
 
-def load_transfers(transfers: list, existing_combos: set) -> int:
-    """Load transfers into raw_transfers.
-    Dedup by player_id + transfer_date + team_in_id
-    to catch new transfers on re-fetch without duplicates."""
+def write_transfers(transfers: list) -> None:
+    """Write pre-deduped transfers to raw_transfers in a single Spark job.
+    Dedup is applied in the main loop before calling this."""
     if not transfers:
-        return 0
-    new_transfers = [
-        t for t in transfers
-        if (t["player_id"], str(t["transfer_date"]), t["team_in_id"])
-        not in existing_combos
-    ]
-    if not new_transfers:
-        return 0
-    schema = StructType([
-        StructField("player_id", IntegerType(), True),
-        StructField("player_name", StringType(), True),
-        StructField("transfer_date", DateType(), True),
-        StructField("transfer_type", StringType(), True),
-        StructField("team_in_id", IntegerType(), True),
-        StructField("team_in_name", StringType(), True),
-        StructField("team_out_id", IntegerType(), True),
-        StructField("team_out_name", StringType(), True),
-        StructField("last_updated", TimestampType(), True),
-        StructField("ingested_at", TimestampType(), True),
-    ])
-    df = spark.createDataFrame(new_transfers, schema=schema)
-    df.write.mode("append").saveAsTable(
-        "efua_data_platform.football_raw.raw_transfers"
+        return
+    schema = StructType(
+        [
+            StructField("player_id", IntegerType(), True),
+            StructField("player_name", StringType(), True),
+            StructField("transfer_date", DateType(), True),
+            StructField("transfer_type", StringType(), True),
+            StructField("team_in_id", IntegerType(), True),
+            StructField("team_in_name", StringType(), True),
+            StructField("team_out_id", IntegerType(), True),
+            StructField("team_out_name", StringType(), True),
+            StructField("last_updated", TimestampType(), True),
+            StructField("ingested_at", TimestampType(), True),
+        ]
     )
-    for t in new_transfers:
-        existing_combos.add(
-            (t["player_id"], str(t["transfer_date"]), t["team_in_id"])
-        )
-    return len(new_transfers)
+    df = spark.createDataFrame(transfers, schema=schema)
+    df.write.mode("append").saveAsTable("efua_data_platform.football_raw.raw_transfers")
 
 
 def log_skipped_players_bulk(player_ids: list):
@@ -241,6 +255,24 @@ def log_skipped_players_bulk(player_ids: list):
     """)
 
 
+def log_success_players_bulk(success_records: list):
+    """Bulk insert successful fetches into ingestion_metadata.
+    success_records: list of (player_id, rows_inserted, started_at)"""
+    if not success_records:
+        return
+    now = datetime.now(tz=timezone.utc)
+    values = ", ".join(
+        f"('{ENDPOINT}', {pid}, '{now.isoformat()}', {rows}, 1, 'success', '{now.isoformat()}', '{started.isoformat()}')"
+        for pid, rows, started in success_records
+    )
+    spark.sql(f"""
+        INSERT INTO efua_data_platform.football_raw.ingestion_metadata
+        (endpoint, entity_id, last_ingested_at, rows_inserted,
+         requests_used, status, created_at, started_at)
+        VALUES {values}
+    """)
+
+
 def main():
     global requests_made
     print("🔄 Fetching transfers...")
@@ -257,7 +289,8 @@ def main():
     print(f"  Players to skip (recently fetched): {len(players_to_skip)}")
 
     already_logged = {
-        row[0] for row in spark.sql(f"""
+        row[0]
+        for row in spark.sql(f"""
             SELECT DISTINCT entity_id
             FROM efua_data_platform.football_raw.ingestion_metadata
             WHERE endpoint = '{ENDPOINT}'
@@ -266,6 +299,8 @@ def main():
     }
 
     skipped_to_log = []
+    pending_transfers = []
+    success_records = []  # (player_id, rows_inserted, started_at)
 
     current_entity_id = None
     started_at = None
@@ -287,17 +322,11 @@ def main():
 
             started_at = datetime.now(tz=timezone.utc)
             current_entity_id = player_id
-            response = fetch_from_api(
-                ENDPOINT,
-                params={"player": player_id}
-            )
+            response = fetch_from_api(ENDPOINT, params={"player": player_id})
             records = response.get("response", [])
 
             if not records:
-                print(
-                    f"  No transfers for player {player_id} "
-                    f"— logging as skipped"
-                )
+                print(f"  No transfers for player {player_id} — logging as skipped")
                 skipped_to_log.append(player_id)
                 continue
 
@@ -311,26 +340,37 @@ def main():
                         flatten_transfer(pid, pname, last_updated, transfer)
                     )
 
-            transfer_rows = load_transfers(all_transfers, existing_combos)
-            print(f"  Player {player_id}: ✅ {transfer_rows} transfers")
+            # dedup in memory — update existing_combos immediately so
+            # subsequent players in the loop don't produce duplicates
+            new_transfers = [
+                t
+                for t in all_transfers
+                if (t["player_id"], str(t["transfer_date"]), t["team_in_id"])
+                not in existing_combos
+            ]
+            for t in new_transfers:
+                existing_combos.add(
+                    (t["player_id"], str(t["transfer_date"]), t["team_in_id"])
+                )
 
-            update_metadata(
-                ENDPOINT, transfer_rows,
-                "success", player_id,
-                started_at=started_at
-            )
+            pending_transfers.extend(new_transfers)
+            success_records.append((player_id, len(new_transfers), started_at))
+            print(f"  Player {player_id}: ✅ {len(new_transfers)} new transfers queued")
 
+        # single Spark write for all players — replaces one write per player
+        write_transfers(pending_transfers)
+        print(f"  Written {len(pending_transfers)} total new transfers")
+
+        log_success_players_bulk(success_records)
         log_skipped_players_bulk(skipped_to_log)
-        print(f"  Logged {len(skipped_to_log)} skipped players in bulk")
+        print(f"  Logged {len(success_records)} fetched, {len(skipped_to_log)} skipped")
         print("\n🎉 Transfers ingestion complete!")
 
     except Exception as e:
         log_skipped_players_bulk(skipped_to_log)
+        log_success_players_bulk(success_records)
         if current_entity_id:
-            update_metadata(
-                ENDPOINT, 0, "failed",
-                current_entity_id, started_at
-            )
+            update_metadata(ENDPOINT, 0, "failed", current_entity_id, started_at)
         print(f"❌ Error: {e}")
         raise
 
