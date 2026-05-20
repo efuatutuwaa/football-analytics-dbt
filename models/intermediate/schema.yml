@@ -1,0 +1,1196 @@
+version: 2
+
+models:
+
+  - name: int_fixture_events
+    description: >
+      One row per fixture event (goal, card, substitution, VAR decision). Sources:
+      stg_fixture_events (primary). Takes each raw event and adds boolean classification
+      flags (is_goal, is_own_goal, is_penalty_goal, is_yellow_card, is_red_card,
+      is_substitution, is_var_decision) so downstream models can filter and aggregate
+      by event type without repeating CASE logic. Materialized as incremental (merge)
+      — new events arrive nightly as matches are played.
+    columns:
+      - name: fixture_id
+        description: Identifier for the fixture.
+        tests:
+          - not_null
+      - name: team_id
+        description: Team that the event is attributed to.
+        tests:
+          - not_null
+      - name: player_id
+        description: Player involved in the event.
+      - name: assist_player_id
+        description: Player credited with the assist (goals only).
+      - name: team_name
+        description: Display name of the team.
+      - name: player_name
+        description: Display name of the player.
+      - name: assist_player_name
+        description: Display name of the assisting player.
+      - name: elapsed_minutes
+        description: Minute of the match when the event occurred.
+      - name: extra_minutes
+        description: Additional stoppage time minutes, if applicable.
+      - name: event_type
+        description: Raw event category from the API (goal, card, subst, var).
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['goal', 'card', 'subst', 'var']
+      - name: event_detail
+        description: Raw event detail from the API (e.g. normal goal, own goal, yellow card). Lowercased at staging.
+      - name: event_comments
+        description: Free-text comments on the event.
+      - name: is_goal
+        description: True if the event is a goal.
+      - name: is_own_goal
+        description: True if the goal was an own goal.
+      - name: is_penalty_goal
+        description: True if the goal was scored from the penalty spot.
+      - name: is_card
+        description: True if the event is a card.
+      - name: is_yellow_card
+        description: True if the card was yellow.
+      - name: is_red_card
+        description: True if the card was red or a second yellow (yellow red).
+      - name: is_substitution
+        description: True if the event is a substitution.
+      - name: is_var_decision
+        description: True if the event is a VAR review decision.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+            - fixture_id
+            - team_id
+            - player_id
+            - event_type
+            - event_detail
+            - elapsed_minutes
+            - extra_minutes
+
+  - name: int_fixture_spine
+    description: >
+      One row per fixture. Joins stg_fixtures (primary), stg_fixture_scores (on fixture_id for
+      home/away goals), and stg_league_seasons (on league_id + season_year for season dates and
+      coverage flags) into a single denormalized record that serves as the foundation for all
+      downstream club and player match models.
+    columns:
+      - name: fixture_id
+        description: Unique identifier for the fixture.
+        tests:
+          - not_null
+          - unique
+      - name: league_id
+        description: League the fixture belongs to.
+        tests:
+          - not_null
+      - name: league_name
+        description: Display name of the league.
+      - name: league_country
+        description: Country the league is based in.
+      - name: league_season
+        description: Season year (e.g. 2023).
+      - name: league_round
+        description: Match round or matchday label.
+      - name: season_start_date
+        description: Start date of the league season.
+      - name: season_end_date
+        description: End date of the league season.
+      - name: is_current_season
+        description: True if this is the current active season.
+      - name: match_date
+        description: Calendar date of the match.
+        tests:
+          - not_null
+      - name: match_timestamp
+        description: Full UTC timestamp of kick-off.
+      - name: first_half_start
+        description: Timestamp when the first half kicked off.
+      - name: second_half_start
+        description: Timestamp when the second half kicked off.
+      - name: elapsed_minutes
+        description: Minutes elapsed at the time of last update.
+      - name: extra_time
+        description: Extra time minutes played, if applicable.
+      - name: match_duration
+        description: Total match duration — elapsed_minutes + coalesce(extra_time, 0).
+      - name: match_status_long
+        description: Full match status description.
+      - name: match_status_short
+        description: Short match status code (e.g. FT, NS, Canc).
+      - name: match_referee
+        description: Name of the match referee.
+      - name: timezone
+        description: Timezone in which match times are expressed.
+      - name: home_team_id
+        description: Identifier for the home team.
+        tests:
+          - not_null
+      - name: home_team_name
+        description: Display name of the home team.
+      - name: is_home_team_winner
+        description: True if the home team won.
+      - name: away_team_id
+        description: Identifier for the away team.
+        tests:
+          - not_null
+      - name: away_team_name
+        description: Display name of the away team.
+      - name: is_away_team_winner
+        description: True if the away team won.
+      - name: venue_id
+        description: Identifier for the match venue.
+      - name: venue_name
+        description: Display name of the venue.
+      - name: venue_city
+        description: City where the venue is located.
+      - name: halftime_home_team_score
+        description: Home team goals at half time.
+      - name: halftime_away_team_score
+        description: Away team goals at half time.
+      - name: fulltime_home_team_score
+        description: Home team goals at full time.
+      - name: fulltime_away_team_score
+        description: Away team goals at full time.
+      - name: extratime_home_team_score
+        description: Home team goals scored in extra time.
+      - name: extratime_away_team_score
+        description: Away team goals scored in extra time.
+      - name: penalty_home_team_score
+        description: Home team penalty shootout score.
+      - name: penalty_away_team_score
+        description: Away team penalty shootout score.
+      - name: has_fixtures_events_coverage
+        description: True if event-level data is available for this league-season.
+      - name: has_fixtures_lineups_coverage
+        description: True if lineup data is available for this league-season.
+      - name: has_standings_coverage
+        description: True if standings data is available for this league-season.
+      - name: has_players_coverage
+        description: True if player statistics are available for this league-season.
+      - name: has_topscorers_coverage
+        description: True if top scorer data is available for this league-season.
+      - name: has_injuries_coverage
+        description: True if injury data is available for this league-season.
+      - name: has_predictions_coverage
+        description: True if match prediction data is available for this league-season.
+      - name: has_odds_coverage
+        description: True if odds data is available for this league-season.
+
+  - name: int_club_league_periods
+    description: >
+      One row per club, league, and season. Inner joins stg_team_seasons with stg_leagues
+      (filtered to league_type = 'league') and stg_teams (filtered to is_national_team = false)
+      to enrich the spine with league name, type, country, and team attributes.
+      The inner joins ensure only domestic league seasons are included — cups, tournaments,
+      and national team entries are excluded. Supports promotion, relegation, and competition
+      participation analysis in downstream marts.
+    columns:
+      - name: team_id
+        description: Identifier for the club.
+        tests:
+          - not_null
+      - name: league_id
+        description: Identifier for the league.
+        tests:
+          - not_null
+      - name: season_year
+        description: Season year the club competed in the league.
+        tests:
+          - not_null
+      - name: team_name
+        description: Display name of the club.
+      - name: league_name
+        description: Display name of the league.
+      - name: league_type
+        description: Type of competition — always 'league' for this model.
+      - name: league_country_name
+        description: Country the league is based in.
+      - name: league_country_code
+        description: Two-letter country code for the league's country.
+      - name: team_code
+        description: Short code for the club (e.g. ARS, MCI).
+      - name: team_country
+        description: Country the club is based in.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+            - team_id
+            - league_id
+            - season_year
+
+  - name: int_club_matchday_metrics
+    description: >
+      One row per club per fixture across all competitions (league, domestic cup, international).
+      Sources: int_fixture_spine (primary), stg_teams (inner joined on team_id for team
+      attributes), stg_fixture_statistics (left joined on fixture_id + team_id for shots,
+      possession, and pass stats). Each fixture fans out to two rows — one per team perspective.
+      Perspective-aware columns (goals_scored, team_halftime_score, etc.) are normalised so
+      "team" always refers to the club in that row. Filter on league_id downstream to scope to
+      a specific competition type. Feeds fact_club_match_stats and rolling form analysis.
+      Materialized as incremental (merge) — match results accumulate nightly.
+    columns:
+      - name: fixture_id
+        description: Identifier for the fixture.
+        tests:
+          - not_null
+      - name: league_id
+        description: Competition the fixture belongs to.
+        tests:
+          - not_null
+      - name: team_id
+        description: Identifier for the club in this row.
+        tests:
+          - not_null
+      - name: team_name
+        description: Display name of the club.
+      - name: team_code
+        description: Short club code (e.g. ARS, MCI).
+      - name: team_country
+        description: Country the club is based in.
+      - name: opponent_team_id
+        description: Identifier for the opposing club.
+      - name: opponent_team_name
+        description: Display name of the opposing club.
+      - name: is_home
+        description: True if this club played at home.
+      - name: is_winner
+        description: True if this club won the fixture.
+      - name: league_name
+        description: Display name of the competition.
+      - name: league_country
+        description: Country the competition is based in.
+      - name: league_season
+        description: Season year.
+      - name: season_start_date
+        description: Start date of the league season.
+      - name: season_end_date
+        description: End date of the league season.
+      - name: is_current_season
+        description: True if this is the current active season.
+      - name: league_round
+        description: Match round or matchday label.
+      - name: match_date
+        description: Calendar date of the match.
+        tests:
+          - not_null
+      - name: match_timestamp
+        description: Full UTC timestamp of kick-off.
+      - name: first_half_start
+        description: Timestamp when the first half kicked off.
+      - name: second_half_start
+        description: Timestamp when the second half kicked off.
+      - name: elapsed_minutes
+        description: Minutes elapsed at last update.
+      - name: extra_time
+        description: Extra time minutes played, if applicable.
+      - name: match_duration
+        description: Total match duration — elapsed_minutes + coalesce(extra_time, 0).
+      - name: match_status_long
+        description: Full match status description (e.g. Match Finished).
+      - name: match_status_short
+        description: Short match status code (e.g. FT, NS, Canc).
+      - name: match_referee
+        description: Name of the match referee.
+      - name: timezone
+        description: Timezone in which match times are expressed.
+      - name: goals_scored
+        description: Goals scored by this club at full time.
+      - name: goals_conceded
+        description: Goals conceded by this club at full time.
+      - name: team_halftime_score
+        description: Goals scored by this club at half time.
+      - name: opponent_halftime_score
+        description: Goals scored by the opponent at half time.
+      - name: team_extratime_score
+        description: Goals scored by this club in extra time (null if no extra time).
+      - name: opponent_extratime_score
+        description: Goals scored by the opponent in extra time.
+      - name: team_penalty_score
+        description: Penalty shootout score for this club (null if no shootout).
+      - name: opponent_penalty_score
+        description: Penalty shootout score for the opponent.
+      - name: goal_difference
+        description: goals_scored minus goals_conceded for this fixture.
+      - name: match_result
+        description: Match result from this club's perspective (win, draw, loss).
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['win', 'draw', 'loss']
+      - name: is_clean_sheet
+        description: True if this club conceded zero goals at full time.
+      - name: shots_on_goal
+        description: Shots on goal (on target).
+      - name: shots_off_goal
+        description: Shots off target.
+      - name: total_shots
+        description: Total shots attempted.
+      - name: blocked_shots
+        description: Shots blocked by the opposition.
+      - name: shots_inside_box
+        description: Shots taken from inside the penalty box.
+      - name: shots_outside_box
+        description: Shots taken from outside the penalty box.
+      - name: fouls
+        description: Fouls committed by this club.
+      - name: corner_kicks
+        description: Corner kicks taken.
+      - name: offsides
+        description: Offside calls against this club.
+      - name: ball_possession
+        description: Ball possession percentage.
+      - name: yellow_cards
+        description: Yellow cards received by this club in the match.
+      - name: red_cards
+        description: Red cards received by this club in the match.
+      - name: goalkeeper_saves
+        description: Saves made by the goalkeeper.
+      - name: total_passes
+        description: Total passes attempted.
+      - name: accurate_passes
+        description: Passes completed successfully.
+      - name: pass_accuracy
+        description: Pass completion percentage.
+      - name: ingested_at
+        description: Timestamp when the record was ingested.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+            - fixture_id
+            - team_id
+
+  - name: int_club_season_metrics
+    description: >
+      One row per club, league, and season. Aggregates match-level results into season
+      totals — wins, draws, losses, goals, goal difference, and clean sheets. Sources:
+      int_club_matchday_metrics (primary), int_club_league_periods (inner joined on
+      team_id + league_id + season_year to restrict to league competitions only).
+      Feeds fact_club_season and supports season-on-season performance comparisons.
+    columns:
+      - name: team_id
+        description: Identifier for the club.
+        tests:
+          - not_null
+      - name: league_id
+        description: League the metrics belong to.
+        tests:
+          - not_null
+      - name: league_season
+        description: Season year.
+        tests:
+          - not_null
+      - name: team_name
+        description: Display name of the club.
+      - name: league_name
+        description: Display name of the league.
+      - name: matches_played
+        description: Total matches played in the season.
+      - name: wins
+        description: Number of wins.
+      - name: draws
+        description: Number of draws.
+      - name: losses
+        description: Number of losses.
+      - name: goals_scored
+        description: Total goals scored across all matches.
+      - name: goals_conceded
+        description: Total goals conceded across all matches.
+      - name: goal_difference
+        description: goals_scored minus goals_conceded.
+      - name: clean_sheets
+        description: Matches in which the club conceded zero goals.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+            - team_id
+            - league_id
+            - league_season
+
+  - name: int_player_club_periods
+    description: >
+      One row per player per club stint. Sources: int_transfers (primary). Derives club
+      stint periods using a lead() window function partitioned by player_id and ordered
+      by transfer_date — period_start_date is the transfer date, period_end_date is the
+      next transfer date (null if still at the club). Carries normalized transfer_type
+      (permanent/loan/loan_return/free/unknown), transfer_fee, and transfer_window from
+      int_transfers. Materialized as table — full rebuild required so lead() correctly
+      backfills period_end_date when a new transfer arrives. Feeds int_player_match_stats
+      and mart models that link player appearances to their club at the time.
+    columns:
+      - name: player_id
+        description: Identifier for the player.
+        tests:
+          - not_null
+      - name: player_name
+        description: Display name of the player.
+      - name: team_id
+        description: Identifier for the club the player joined.
+        tests:
+          - not_null
+      - name: team_name
+        description: Display name of the club.
+      - name: previous_team_id
+        description: Identifier for the club the player transferred from.
+      - name: previous_team_name
+        description: Display name of the previous club.
+      - name: period_start_date
+        description: Date the player joined the club (transfer_date).
+      - name: period_end_date
+        description: Date the player left the club — next transfer_date via lead(). Null means still at the club.
+      - name: transfer_type
+        description: Normalized transfer type — permanent, loan, loan_return, free, or unknown.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['permanent', 'loan', 'loan_return', 'free', 'unknown']
+      - name: transfer_fee
+        description: Raw fee string from the API (e.g. € 75M). Null for non-fee transfers.
+      - name: transfer_window
+        description: Transfer window the move occurred in — summer (Jun–Aug), winter (Jan), or emergency.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['summer', 'winter', 'emergency']
+      - name: ingested_at
+        description: Timestamp when the transfer record was ingested.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+            - player_id
+            - team_id
+            - period_start_date
+
+  - name: int_player_market_value_periods
+    description: >
+      One row per player transfer with a recorded fee. Sources: int_transfers (primary,
+      filtered to transfer_fee is not null). Captures the monetary fee, club moved to/from,
+      and transfer window for each fee-bearing move. Materialized as table. Feeds
+      mart_transfer_window for fee distribution and player market value tracking over time.
+    columns:
+      - name: player_id
+        description: Identifier for the player.
+        tests:
+          - not_null
+      - name: player_name
+        description: Display name of the player.
+      - name: team_id
+        description: Identifier for the club the player transferred to.
+        tests:
+          - not_null
+      - name: team_name
+        description: Display name of the destination club.
+      - name: previous_team_id
+        description: Identifier for the club the player transferred from.
+      - name: previous_team_name
+        description: Display name of the previous club.
+      - name: transfer_date
+        description: Date the transfer was completed.
+        tests:
+          - not_null
+      - name: transfer_fee
+        description: Raw fee string from the API (e.g. € 75M). Never null in this model.
+      - name: transfer_type
+        description: Normalized transfer type — always permanent for fee-bearing transfers.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['permanent', 'loan', 'loan_return', 'free', 'unknown']
+      - name: transfer_window
+        description: Transfer window the move occurred in — summer (Jun–Aug), winter (Jan), or emergency.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['summer', 'winter', 'emergency']
+      - name: ingested_at
+        description: Timestamp when the transfer record was ingested.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+            - player_id
+            - team_id
+            - transfer_date
+
+  - name: int_player_match_stats
+    description: >
+      One row per player per fixture (player_id, fixture_id). Sources: stg_player_statistics
+      (primary), int_fixture_spine (left joined on fixture_id for competition context,
+      opponent, match date, home/away, and match result). Enriches raw per-fixture player
+      statistics with match context. Adds competition type, opponent identity, home/away flag,
+      and match result from the player's team perspective. Materialized as incremental (merge)
+      — player stats arrive nightly as matches complete. Serves as the shared base for
+      int_player_season_metrics and all player-level mart models.
+    columns:
+      - name: fixture_id
+        description: Identifier for the fixture.
+        tests:
+          - not_null
+      - name: player_id
+        description: Identifier for the player.
+        tests:
+          - not_null
+      - name: team_id
+        description: Club the player represented in this fixture.
+        tests:
+          - not_null
+      - name: player_name
+        description: Display name of the player.
+      - name: team_name
+        description: Display name of the club.
+      - name: jersey_number
+        description: Squad number worn by the player in this fixture.
+      - name: player_position
+        description: Position the player was listed in (e.g. Goalkeeper, Defender).
+      - name: rating
+        description: Player rating for the match (0–10 scale).
+      - name: is_captain
+        description: True if the player wore the captain's armband.
+      - name: is_substitute
+        description: True if the player came on as a substitute.
+      - name: league_id
+        description: Competition the fixture belongs to.
+      - name: league_name
+        description: Display name of the competition.
+      - name: league_season
+        description: Season year of the fixture.
+      - name: league_round
+        description: Match round or matchday label.
+      - name: match_date
+        description: Calendar date of the match.
+      - name: is_home
+        description: True if the player's team played at home.
+      - name: opponent_team_id
+        description: Identifier for the opposing team.
+      - name: opponent_team_name
+        description: Display name of the opposing team.
+      - name: match_result
+        description: Result from the player's team perspective (win, draw, loss). Null if match not yet completed.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['win', 'draw', 'loss']
+      - name: minutes_played
+        description: Total minutes the player was on the pitch.
+      - name: offsides
+        description: Number of offside calls against the player.
+      - name: total_shots
+        description: Total shots attempted.
+      - name: shots_on_target
+        description: Shots on target.
+      - name: goals_scored
+        description: Goals scored in this appearance.
+      - name: goals_conceded
+        description: Goals conceded (relevant for goalkeepers).
+      - name: assists
+        description: Assists registered in this appearance.
+      - name: saves
+        description: Saves made (relevant for goalkeepers).
+      - name: total_passes
+        description: Total passes attempted.
+      - name: key_passes
+        description: Passes leading directly to a shot.
+      - name: pass_accuracy_pct
+        description: Pass completion percentage.
+      - name: total_tackles
+        description: Total tackles made.
+      - name: blocks
+        description: Shots or passes blocked.
+      - name: interceptions
+        description: Total interceptions.
+      - name: total_duels
+        description: Total duels contested.
+      - name: duels_won
+        description: Duels won.
+      - name: dribbles_attempted
+        description: Dribbles attempted.
+      - name: successful_dribbles
+        description: Dribbles completed successfully.
+      - name: dribbles_past
+        description: Times the player was dribbled past.
+      - name: fouls_drawn
+        description: Fouls drawn by the player.
+      - name: fouls_committed
+        description: Fouls committed by the player.
+      - name: yellow_card_count
+        description: Yellow cards received.
+      - name: red_card_count
+        description: Red cards received.
+      - name: penalties_won
+        description: Penalties won by the player.
+      - name: penalties_committed
+        description: Penalties given away by the player.
+      - name: penalties_scored
+        description: Penalties scored.
+      - name: penalties_missed
+        description: Penalties missed.
+      - name: penalties_saved
+        description: Penalties saved (goalkeepers).
+      - name: ingested_at
+        description: Timestamp when the record was ingested.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+            - fixture_id
+            - player_id
+
+  - name: int_player_season_metrics
+    description: >
+      One row per player per team per league per season. A player who moved clubs
+      mid-season gets one row per club. Sources: int_player_match_stats (primary).
+      Aggregates match-level player statistics into season totals per club per league.
+      Captures appearances, starts, minutes played, goals, assists, cards, and average
+      match rating. Materialized as table. Feeds player-level mart models and supports
+      season-on-season performance comparisons and ranking across competitions.
+    columns:
+      - name: player_id
+        description: Identifier for the player.
+        tests:
+          - not_null
+      - name: player_name
+        description: Display name of the player.
+      - name: team_id
+        description: Club the player represented for these season totals.
+        tests:
+          - not_null
+      - name: team_name
+        description: Display name of the club.
+      - name: league_id
+        description: League the metrics belong to.
+        tests:
+          - not_null
+      - name: league_name
+        description: Display name of the league.
+      - name: league_season
+        description: Season year.
+        tests:
+          - not_null
+      - name: appearances
+        description: Number of matches the player appeared in.
+      - name: total_starts
+        description: Number of matches started (not as substitute).
+      - name: minutes_played
+        description: Total minutes played across all appearances.
+      - name: total_shots
+        description: Total shots attempted in the season.
+      - name: shots_on_target
+        description: Total shots on target in the season.
+      - name: goals
+        description: Total goals scored in the season.
+      - name: assists
+        description: Total assists in the season.
+      - name: yellow_cards
+        description: Total yellow cards received.
+      - name: red_cards
+        description: Total red cards received.
+      - name: total_passes
+        description: Total passes attempted in the season.
+      - name: total_tackles
+        description: Total tackles made in the season.
+      - name: interceptions
+        description: Total interceptions in the season.
+      - name: successful_dribbles
+        description: Total successful dribbles in the season.
+      - name: avg_rating
+        description: Average match rating across appearances with a rating.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+            - player_id
+            - team_id
+            - league_id
+            - league_season
+
+  - name: int_club_domestic_cup_runs
+    description: >
+      One row per club per fixture in domestic cup competitions. Sources: int_fixture_spine
+      (primary), stg_teams (inner joined on team_id for team attributes). Covers FA Cup (45),
+      Carabao Cup (48), Coupe de France (66), DFB-Pokal (81), Coppa Italia (137), and Copa
+      del Rey (143). Each fixture fans out to two rows — one per team perspective.
+      Perspective-aware columns (goals_scored, team_halftime_score, etc.) are normalised so
+      "team" always refers to the club in that row. round_order drives the is_farthest_round
+      window function. Designed to complement int_club_league_periods for double/treble
+      analysis. Materialized as incremental (merge) — cup fixtures accumulate nightly.
+    columns:
+      - name: fixture_id
+        description: Identifier for the fixture.
+        tests:
+          - not_null
+      - name: league_id
+        description: Identifier for the cup competition.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [45, 48, 66, 81, 137, 143]
+      - name: team_id
+        description: Identifier for the club in this row.
+        tests:
+          - not_null
+      - name: team_name
+        description: Display name of the club.
+      - name: team_code
+        description: Short club code (e.g. ARS, MCI).
+      - name: team_country
+        description: Country the club is based in.
+      - name: opponent_team_id
+        description: Identifier for the opposing team.
+      - name: opponent_team_name
+        description: Display name of the opposing team.
+      - name: is_home
+        description: True if this club played at home.
+      - name: is_winner
+        description: True if this club won the fixture.
+      - name: league_name
+        description: Display name of the cup competition.
+      - name: league_country
+        description: Country the cup belongs to.
+      - name: league_season
+        description: Season year the cup was played.
+        tests:
+          - not_null
+      - name: season_start_date
+        description: Start date of the season.
+      - name: season_end_date
+        description: End date of the season.
+      - name: is_current_season
+        description: True if this is the current active season.
+      - name: league_round
+        description: Cup round label (e.g. Round of 16, Quarter-finals, Final).
+        tests:
+          - not_null
+      - name: round_order
+        description: Numeric rank of the round for ordering and window function comparisons.
+      - name: is_farthest_round
+        description: True if this is the farthest round the club reached in this cup and season.
+      - name: match_date
+        description: Calendar date of the match.
+      - name: match_timestamp
+        description: Full UTC timestamp of kick-off.
+      - name: first_half_start
+        description: Timestamp when the first half kicked off.
+      - name: second_half_start
+        description: Timestamp when the second half kicked off.
+      - name: elapsed_minutes
+        description: Minutes elapsed at last update.
+      - name: extra_time
+        description: Extra time minutes played, if applicable.
+      - name: match_duration
+        description: Total match duration — elapsed_minutes + coalesce(extra_time, 0).
+      - name: match_status_long
+        description: Full match status description.
+      - name: match_status_short
+        description: Short match status code (e.g. FT, NS, Canc).
+      - name: match_referee
+        description: Name of the match referee.
+      - name: timezone
+        description: Timezone in which match times are expressed.
+      - name: goals_scored
+        description: Goals scored by this club at full time.
+      - name: goals_conceded
+        description: Goals conceded by this club at full time.
+      - name: team_halftime_score
+        description: Goals scored by this club at half time.
+      - name: opponent_halftime_score
+        description: Goals scored by the opponent at half time.
+      - name: team_extratime_score
+        description: Goals scored by this club in extra time (null if no extra time).
+      - name: opponent_extratime_score
+        description: Goals scored by the opponent in extra time.
+      - name: team_penalty_score
+        description: Penalty shootout score for this club (null if no shootout).
+      - name: opponent_penalty_score
+        description: Penalty shootout score for the opponent.
+      - name: ingested_at
+        description: Timestamp when the record was ingested.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+            - fixture_id
+            - team_id
+            - league_id
+            - league_season
+            - league_round
+
+  - name: int_club_intl_runs
+    description: >
+      One row per club per fixture in UEFA Champions League (2) and FIFA Club World Cup (15).
+      Sources: int_fixture_spine (primary), stg_teams (inner joined on team_id for team
+      attributes), stg_standings (left joined on league_id + league_season + team_id for
+      group stage record). Each fixture fans out to two rows — one per team perspective.
+      Perspective-aware columns (goals_scored, team_halftime_score, etc.) are normalised so
+      "team" always refers to the club in that row. round_order drives the is_farthest_round
+      window function. Note: the Club World Cup changed format significantly in 2025 (7-team
+      to 32-team) — account for this when comparing across seasons. Materialized as
+      incremental (merge) — tournament fixtures accumulate nightly.
+    columns:
+      - name: fixture_id
+        description: Identifier for the fixture.
+        tests:
+          - not_null
+      - name: league_id
+        description: Identifier for the tournament (2 = UCL, 15 = CWC).
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [2, 15]
+      - name: team_id
+        description: Identifier for the club in this row.
+        tests:
+          - not_null
+      - name: team_name
+        description: Display name of the club.
+      - name: team_code
+        description: Short club code (e.g. ARS, MCI).
+      - name: team_country
+        description: Country the club is based in.
+      - name: opponent_team_id
+        description: Identifier for the opposing team.
+      - name: opponent_team_name
+        description: Display name of the opposing team.
+      - name: is_home
+        description: True if this club played at home.
+      - name: is_winner
+        description: True if this club won the fixture.
+      - name: league_name
+        description: Display name of the tournament.
+      - name: league_country
+        description: Country hosting or organising the tournament.
+      - name: league_season
+        description: Season year of the tournament.
+        tests:
+          - not_null
+      - name: season_start_date
+        description: Start date of the season.
+      - name: season_end_date
+        description: End date of the season.
+      - name: is_current_season
+        description: True if this is the current active season.
+      - name: league_round
+        description: Tournament round label (e.g. Group Stage, Round of 16, Final).
+        tests:
+          - not_null
+      - name: round_order
+        description: Numeric rank of the round for ordering and window function comparisons.
+      - name: is_farthest_round
+        description: True if this is the farthest round the club reached in this tournament and season.
+      - name: match_date
+        description: Calendar date of the match.
+      - name: match_timestamp
+        description: Full UTC timestamp of kick-off.
+      - name: first_half_start
+        description: Timestamp when the first half kicked off.
+      - name: second_half_start
+        description: Timestamp when the second half kicked off.
+      - name: elapsed_minutes
+        description: Minutes elapsed at last update.
+      - name: extra_time
+        description: Extra time minutes played, if applicable.
+      - name: match_duration
+        description: Total match duration — elapsed_minutes + coalesce(extra_time, 0).
+      - name: match_status_long
+        description: Full match status description.
+      - name: match_status_short
+        description: Short match status code (e.g. FT, NS, Canc).
+      - name: match_referee
+        description: Name of the match referee.
+      - name: timezone
+        description: Timezone in which match times are expressed.
+      - name: goals_scored
+        description: Goals scored by this club at full time.
+      - name: goals_conceded
+        description: Goals conceded by this club at full time.
+      - name: team_halftime_score
+        description: Goals scored by this club at half time.
+      - name: opponent_halftime_score
+        description: Goals scored by the opponent at half time.
+      - name: team_extratime_score
+        description: Goals scored by this club in extra time (null if no extra time).
+      - name: opponent_extratime_score
+        description: Goals scored by the opponent in extra time.
+      - name: team_penalty_score
+        description: Penalty shootout score for this club (null if no shootout).
+      - name: opponent_penalty_score
+        description: Penalty shootout score for the opponent.
+      - name: group_name
+        description: Group the club was assigned to (group stage only, null in knockout rounds).
+      - name: group_position
+        description: Final group stage ranking position.
+      - name: group_points
+        description: Points accumulated in the group stage.
+      - name: group_wins
+        description: Wins in the group stage.
+      - name: group_draws
+        description: Draws in the group stage.
+      - name: group_losses
+        description: Losses in the group stage.
+      - name: group_goals_for
+        description: Goals scored in the group stage.
+      - name: group_goals_against
+        description: Goals conceded in the group stage.
+      - name: group_goal_difference
+        description: Goal difference in the group stage.
+      - name: ingested_at
+        description: Timestamp when the record was ingested.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+            - fixture_id
+            - team_id
+            - league_id
+            - league_season
+            - league_round
+
+  - name: int_standings
+    description: >
+      One row per team, league, season, and group. Sources: stg_standings (primary).
+      Enriches current standings with derived metrics (win_rate, points_per_game) and
+      carries the full home/away split alongside the overall record. Materialized as
+      table — standings reflect the latest ingested snapshot. No matchday column is
+      available so this is not a per-matchday history. Serves as the foundation for
+      fact_standings.
+    columns:
+      - name: league_id
+        description: Identifier for the league.
+        tests:
+          - not_null
+      - name: league_name
+        description: Display name of the league.
+      - name: league_season
+        description: Season year.
+        tests:
+          - not_null
+      - name: team_id
+        description: Identifier for the club.
+        tests:
+          - not_null
+      - name: team_name
+        description: Display name of the club.
+      - name: group_name
+        description: Group or division name (relevant for multi-group competitions).
+      - name: team_rank
+        description: Current league position.
+      - name: team_points
+        description: Total points accumulated.
+      - name: matches_played
+        description: Total matches played.
+      - name: matches_won
+        description: Total wins.
+      - name: matches_drawn
+        description: Total draws.
+      - name: matches_lost
+        description: Total losses.
+      - name: goals_for
+        description: Total goals scored.
+      - name: goals_against
+        description: Total goals conceded.
+      - name: goals_difference
+        description: Goals scored minus goals conceded.
+      - name: home_matches_played
+        description: Matches played at home.
+      - name: home_matches_won
+        description: Home wins.
+      - name: home_matches_drawn
+        description: Home draws.
+      - name: home_matches_lost
+        description: Home losses.
+      - name: home_goals_for
+        description: Goals scored at home.
+      - name: home_goals_against
+        description: Goals conceded at home.
+      - name: away_matches_played
+        description: Matches played away.
+      - name: away_matches_won
+        description: Away wins.
+      - name: away_matches_drawn
+        description: Away draws.
+      - name: away_matches_lost
+        description: Away losses.
+      - name: away_goals_for
+        description: Goals scored away.
+      - name: away_goals_against
+        description: Goals conceded away.
+      - name: win_rate
+        description: Proportion of matches won (matches_won / matches_played), rounded to 3dp.
+      - name: points_per_game
+        description: Average points earned per match played, rounded to 2dp.
+      - name: form
+        description: Recent form string (e.g. WWDLW).
+      - name: standing_status
+        description: Promotion or relegation status code.
+      - name: standing_description
+        description: Full standing description (e.g. Promotion - Champions League).
+      - name: last_updated
+        description: Timestamp of the last update from the source API.
+      - name: ingested_at
+        description: Timestamp when the record was ingested.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - team_id
+              - league_id
+              - league_season
+              - group_name
+
+  - name: int_transfers
+    description: >
+      One row per player transfer (player_id, new_team_id, transfer_date). Sources: stg_transfers
+      (primary). Enriches staging transfer records with business logic classifications. Splits the
+      raw transfer_type field — which the API reuses for both the transfer type label and the fee
+      amount — into a normalized transfer_type (permanent/loan/loan_return/free/unknown) and
+      transfer_fee (the raw monetary string where applicable). Adds transfer_window tagging
+      (summer/winter/emergency) based on the month of transfer_date. Materialized as table.
+      Applies two data quality filters beyond stg_transfers: (1) excludes records where
+      new_team_id is null (free agent releases with no destination club); (2) deduplicates on
+      (player_id, new_team_id, transfer_date) — stricter than the staging dedup which includes
+      previous_team_id, because the API occasionally records the same transfer twice with
+      different previous_team values. Feeds int_player_club_periods and mart_transfer_window.
+    columns:
+      - name: player_id
+        description: Identifier for the player.
+        tests:
+          - not_null
+      - name: player_name
+        description: Display name of the player.
+      - name: new_team_id
+        description: Identifier for the club the player transferred to.
+        tests:
+          - not_null
+      - name: new_team_name
+        description: Display name of the destination club.
+      - name: previous_team_id
+        description: Identifier for the club the player transferred from.
+      - name: previous_team_name
+        description: Display name of the previous club.
+      - name: transfer_date
+        description: Date the transfer was completed.
+        tests:
+          - not_null
+      - name: transfer_type
+        description: Normalized transfer type — permanent, loan, loan_return, free, or unknown.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['permanent', 'loan', 'loan_return', 'free', 'unknown']
+      - name: transfer_fee
+        description: Raw fee string from the API (e.g. € 75M). Null for non-fee transfers.
+      - name: transfer_window
+        description: Transfer window the move occurred in — summer (Jun–Aug), winter (Jan), or emergency.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['summer', 'winter', 'emergency']
+      - name: last_updated
+        description: Timestamp of the last update from the source API.
+      - name: ingested_at
+        description: Timestamp when the record was ingested.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+            - player_id
+            - transfer_date
+            - new_team_id
+            - previous_team_id
+
+  - name: int_national_team_runs
+    description: >
+      One row per national team per fixture in the FIFA World Cup (1) and UEFA European
+      Championship (4). Sources: int_fixture_spine (primary, qualifying rounds excluded),
+      stg_teams (inner joined, filtered to is_national_team = true), stg_standings (left
+      joined for group stage record). Home/away designation is dropped — most matches are
+      played at neutral venues. Qualifying rounds are excluded; this model covers the
+      tournament proper only. Materialized as incremental (merge). Note: coverage is
+      limited to World Cup and Euros — metrics scoped to all international competitions
+      will be incomplete for non-European nations.
+    columns:
+      - name: fixture_id
+        description: Identifier for the fixture.
+        tests:
+          - not_null
+      - name: team_id
+        description: Identifier for the national team.
+        tests:
+          - not_null
+      - name: league_id
+        description: Identifier for the tournament (1 = World Cup, 4 = Euros).
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [1, 4]
+      - name: league_season
+        description: Year of the tournament edition.
+        tests:
+          - not_null
+      - name: league_round
+        description: Tournament round label (e.g. Group Stage - 1, Round of 16, Final).
+        tests:
+          - not_null
+      - name: team_name
+        description: Display name of the national team.
+      - name: team_code
+        description: Short code for the national team.
+      - name: team_country
+        description: Country the national team represents.
+      - name: opponent_team_id
+        description: Identifier for the opposing national team.
+      - name: opponent_team_name
+        description: Display name of the opposing national team.
+      - name: league_name
+        description: Display name of the tournament.
+      - name: league_country
+        description: Country hosting or organising the tournament.
+      - name: match_date
+        description: Calendar date of the match.
+      - name: is_winner
+        description: True if this team won the fixture.
+      - name: goals_scored
+        description: Goals scored by this team in the fixture.
+      - name: goals_conceded
+        description: Goals conceded by this team in the fixture.
+      - name: round_order
+        description: Numeric rank of the round for ordering and window function comparisons.
+      - name: is_farthest_round
+        description: True if this is the farthest round the team reached in this tournament edition.
+      - name: group_name
+        description: Group the team was assigned to (group stage only, null in knockout rounds).
+      - name: group_position
+        description: Final group stage ranking position.
+      - name: group_points
+        description: Points accumulated in the group stage.
+      - name: group_wins
+        description: Wins in the group stage.
+      - name: group_draws
+        description: Draws in the group stage.
+      - name: group_losses
+        description: Losses in the group stage.
+      - name: group_goals_for
+        description: Goals scored in the group stage.
+      - name: group_goals_against
+        description: Goals conceded in the group stage.
+      - name: group_goal_difference
+        description: Goal difference in the group stage.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+            - fixture_id
+            - team_id
+            - league_id
+            - league_season
+            - league_round
