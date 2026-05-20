@@ -7,7 +7,7 @@
 Accepted
 
 ## Context
-API-Football provides a /teams/statistics endpoint that returns 
+API-Football provides a /teams/statistics endpoint that returns
 aggregated season statistics per team per league including:
 
 - Fixtures played, wins, draws, losses
@@ -18,12 +18,12 @@ aggregated season statistics per team per league including:
 - Card statistics by minute
 - Lineup formations used
 
-I had to decide whether to ingest this endpoint or derive these 
+I had to decide whether to ingest this endpoint or derive these
 metrics myself in the dbt intermediate layer.
 
 ## Decision
-I chose to skip the /teams/statistics endpoint entirely and derive 
-all team level metrics in the dbt intermediate layer from raw 
+I chose to skip the /teams/statistics endpoint entirely and derive
+all team level metrics in the dbt intermediate layer from raw
 fixture and player statistics data.
 
 Team level metrics are calculated in:
@@ -53,8 +53,7 @@ data available immediately. Rejected because:
 - Full control over metric definitions and aggregation logic
 - Consistent numbers across all layers — no discrepancy between
   API aggregations and dbt calculations
-- Follows the Bolt data modelling guide principle:
-  metrics defined once at the most granular level (SSOT)
-  and aggregated upward via int_*_metrics models
+- Follows the dbt best practice of defining metrics at the most
+  granular level (SSOT) and aggregating upward via int_*_metrics models
 - Easier to test and validate — each metric has a clear
   definition in dbt YAML
