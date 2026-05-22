@@ -47,10 +47,9 @@ sources:
           freshness: null
         data_tests:
           - dbt_utils.unique_combination_of_columns:
-              arguments:
-                combination_of_columns:
-                  - league_id
-                  - season_year
+              combination_of_columns:
+                - league_id
+                - season_year
         columns:
           - name: league_id
             data_tests: [not_null]
@@ -109,11 +108,10 @@ sources:
           freshness: null
         data_tests:
           - dbt_utils.unique_combination_of_columns:
-              arguments:
-                combination_of_columns:
-                  - team_id
-                  - league_id
-                  - season_year
+              combination_of_columns:
+                - team_id
+                - league_id
+                - season_year
         columns:
           - name: team_id
             data_tests: [not_null]
@@ -130,10 +128,9 @@ sources:
           freshness: null
         data_tests:
           - dbt_utils.unique_combination_of_columns:
-              arguments:
-                combination_of_columns:
-                  - team_id
-                  - player_id
+              combination_of_columns:
+                - team_id
+                - player_id
         columns:
           - name: team_id
             data_tests: [not_null]
@@ -174,11 +171,10 @@ sources:
         description: One row per player per team per fixture. INSERT-only after match completion. Refreshed daily alongside raw_fixtures for current seasons.
         data_tests:
           - dbt_utils.unique_combination_of_columns:
-              arguments:
-                combination_of_columns:
-                  - fixture_id
-                  - team_id
-                  - player_id
+              combination_of_columns:
+                - fixture_id
+                - team_id
+                - player_id
         columns:
           - name: fixture_id
             data_tests: [not_null]
@@ -256,11 +252,10 @@ sources:
             error_after: {count: 14, period: day}
         data_tests:
           - dbt_utils.unique_combination_of_columns:
-              arguments:
-                combination_of_columns:
-                  - coach_id
-                  - team_id
-                  - start_date
+              combination_of_columns:
+                - coach_id
+                - team_id
+                - start_date
         columns:
           - name: coach_id
             data_tests: [not_null]
@@ -278,11 +273,10 @@ sources:
           freshness: null
         data_tests:
           - dbt_utils.unique_combination_of_columns:
-              arguments:
-                combination_of_columns:
-                  - player_id
-                  - transfer_date
-                  - team_in_id
+              combination_of_columns:
+                - player_id
+                - transfer_date
+                - team_in_id
         columns:
           - name: player_id
             data_tests: [not_null]
@@ -376,10 +370,9 @@ sources:
         description: One row per team per fixture (two rows per fixture). INSERT-only when lineup is released, typically around kick-off. Refreshed daily alongside raw_fixtures.
         data_tests:
           - dbt_utils.unique_combination_of_columns:
-              arguments:
-                combination_of_columns:
-                  - fixture_id
-                  - team_id
+              combination_of_columns:
+                - fixture_id
+                - team_id
         columns:
           - name: fixture_id
             data_tests: [not_null]
@@ -396,11 +389,10 @@ sources:
         description: One row per player per team per fixture covering starters and substitutes. INSERT-only when lineup is released. Refreshed daily alongside raw_fixtures.
         data_tests:
           - dbt_utils.unique_combination_of_columns:
-              arguments:
-                combination_of_columns:
-                  - fixture_id
-                  - team_id
-                  - player_id
+              combination_of_columns:
+                - fixture_id
+                - team_id
+                - player_id
         columns:
           - name: fixture_id
             data_tests: [not_null]
@@ -420,10 +412,9 @@ sources:
         description: One row per team per fixture (two rows per fixture). INSERT-only after match completion. Refreshed daily alongside raw_fixtures for current seasons.
         data_tests:
           - dbt_utils.unique_combination_of_columns:
-              arguments:
-                combination_of_columns:
-                  - fixture_id
-                  - team_id
+              combination_of_columns:
+                - fixture_id
+                - team_id
         columns:
           - name: fixture_id
             data_tests: [not_null]
@@ -457,12 +448,11 @@ sources:
             error_after: {count: 14, period: day}
         data_tests:
           - dbt_utils.unique_combination_of_columns:
-              arguments:
-                combination_of_columns:
-                  - league_id
-                  - league_season
-                  - team_id
-                  - group_name
+              combination_of_columns:
+                - league_id
+                - league_season
+                - team_id
+                - group_name
         columns:
           - name: league_id
             data_tests: [not_null]
