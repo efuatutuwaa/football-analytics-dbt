@@ -1,14 +1,19 @@
 -- Model: int_club_season_metrics
--- Grain: 1 row per team_id, league_id, league_season
--- Materialization: table — aggregated from int_club_matchday_metrics
--- Sources: int_club_matchday_metrics (primary), int_club_league_periods (inner joined on
---          team_id + league_id + season_year to restrict to league competitions only)
+-- Grain: 1 row per club per domestic league per season (team_id, league_id, league_season)
+-- Materialization: table — full refresh aggregate from match-level source
+-- Sources:
+--   int_club_matchday_metrics — match results and goals (all competitions in source)
+--   int_club_league_periods — inner join on team_id + league_id + league_season = season_year
+--     restricts to domestic league fixtures only
 -- Purpose:
---   Aggregates match-level results into season totals per club per league per season.
---   Captures wins, draws, losses, goals scored/conceded, goal difference, and clean sheets.
---   Scoped to league competitions only — cup and international metrics are tracked separately
---   in int_club_domestic_cup_runs and int_club_intl_runs.
---   Feeds fact_club_season and supports season-on-season performance comparisons downstream.
+--   Season totals derived in dbt (not API /teams/statistics) — wins, draws, losses, goals,
+--   goal difference, clean sheets. Only counts rows where match_result is not null (finished matches).
+-- Aggregations:
+--   matches_played = count(*), wins/draws/losses sum on match_result, goals summed, clean_sheets summed
+-- Downstream:
+--   fact_club_season, mart_club_season, season-on-season comparisons
+-- Excludes: domestic cups (int_club_domestic_cup_runs), European club comps (int_club_intl_runs)
+-- Notes: See docs/adr/005-skipped-team-statistics.md for why season stats are derived here.
 
 {{ config(materialized='table') }}
 

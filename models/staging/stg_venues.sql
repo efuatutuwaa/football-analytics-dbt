@@ -1,3 +1,18 @@
+-- Model: stg_venues
+-- Layer: staging
+-- Grain: 1 row per venue_id
+-- Materialization: view
+-- Source: football_raw.raw_venues
+-- Purpose:
+--   Stadium and ground reference data (name, city, capacity, surface, image).
+--   Feeds dim_venue when implemented; fixture rows also carry inline venue_id/name from stg_fixtures.
+-- Transformations:
+--   Trims text fields; casts ingested_at to timestamp.
+-- Downstream:
+--   dim_venue (planned), ad-hoc venue analysis joined via fixture.venue_id
+-- Notes:
+--   Not all fixtures resolve to a row here — some use venue fields on the fixture record only.
+
 {{ config(materialized='view') }}
 
 with source as (

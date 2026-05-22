@@ -48,18 +48,16 @@ models:
     description: Coverage metadata for each league-season combination.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
-              - league_id
-              - season_year
+          combination_of_columns:
+            - league_id
+            - season_year
     columns:
       - name: league_id
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_leagues')
-                field: league_id
+              to: ref('stg_leagues')
+              field: league_id
       - name: season_year
         data_tests:
           - not_null
@@ -107,26 +105,23 @@ models:
       Bridge table linking teams to the league-seasons they participated in.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
-              - team_id
-              - league_id
-              - season_year
+          combination_of_columns:
+            - team_id
+            - league_id
+            - season_year
     columns:
       - name: team_id
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_teams')
-                field: team_id
+              to: ref('stg_teams')
+              field: team_id
       - name: league_id
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_leagues')
-                field: league_id
+              to: ref('stg_leagues')
+              field: league_id
       - name: season_year
         data_tests:
           - not_null
@@ -191,20 +186,18 @@ models:
       windows. Deduplicated on (player_id, transfer_date, new_team_id, previous_team_id).
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
-              - player_id
-              - transfer_date
-              - new_team_id
-              - previous_team_id
+          combination_of_columns:
+            - player_id
+            - transfer_date
+            - new_team_id
+            - previous_team_id
     columns:
       - name: player_id
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_players')
-                field: player_id
+              to: ref('stg_players')
+              field: player_id
       - name: player_name
       - name: transfer_date
       - name: transfer_type
@@ -256,18 +249,16 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              arguments:
-                values: ['FT', 'NS', 'HT', 'LIVE', 'ET', 'PEN', 'BT', 'P', 'SUSP',
-                         'INT', 'PST', 'CANC', 'Canc', 'ABD', 'AWD', 'WO', 'AET']
+              values: ['FT', 'NS', 'HT', 'LIVE', 'ET', 'PEN', 'BT', 'P', 'SUSP',
+                       'INT', 'PST', 'CANC', 'Canc', 'ABD', 'AWD', 'WO', 'AET']
       - name: elapsed_minutes
       - name: extra_time
       - name: league_id
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_leagues')
-                field: league_id
+              to: ref('stg_leagues')
+              field: league_id
       - name: league_name
       - name: league_country
       - name: league_season
@@ -278,9 +269,8 @@ models:
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_teams')
-                field: team_id
+              to: ref('stg_teams')
+              field: team_id
       - name: home_team_name
       - name: home_team_winner
         description: True / False / null (null when draw or not yet played).
@@ -288,9 +278,8 @@ models:
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_teams')
-                field: team_id
+              to: ref('stg_teams')
+              field: team_id
       - name: away_team_name
       - name: away_team_winner
       - name: ingested_at
@@ -305,9 +294,8 @@ models:
           - not_null
           - unique
           - relationships:
-              arguments:
-                to: ref('stg_fixtures')
-                field: fixture_id
+              to: ref('stg_fixtures')
+              field: fixture_id
       - name: halftime_home
       - name: halftime_away
       - name: fulltime_home
@@ -328,25 +316,22 @@ models:
       (two rows per fixture).
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
-              - fixture_id
-              - team_id
+          combination_of_columns:
+            - fixture_id
+            - team_id
     columns:
       - name: fixture_id
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_fixtures')
-                field: fixture_id
+              to: ref('stg_fixtures')
+              field: fixture_id
       - name: team_id
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_teams')
-                field: team_id
+              to: ref('stg_teams')
+              field: team_id
       - name: team_name
       - name: shots_on_goal
       - name: shots_off_goal
@@ -379,9 +364,8 @@ models:
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_fixtures')
-                field: fixture_id
+              to: ref('stg_fixtures')
+              field: fixture_id
       - name: elapsed_minutes
         data_tests:
           - not_null
@@ -401,8 +385,7 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              arguments:
-                values: ['goal', 'card', 'subst', 'var']
+              values: ['goal', 'card', 'subst', 'var']
       - name: event_detail
         description: "e.g. Normal Goal, Yellow Card, Red Card."
       - name: comments
@@ -416,25 +399,22 @@ models:
       Two rows per fixture (one per team).
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
-              - fixture_id
-              - team_id
+          combination_of_columns:
+            - fixture_id
+            - team_id
     columns:
       - name: fixture_id
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_fixtures')
-                field: fixture_id
+              to: ref('stg_fixtures')
+              field: fixture_id
       - name: team_id
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_teams')
-                field: team_id
+              to: ref('stg_teams')
+              field: team_id
       - name: team_name
       - name: formation
         description: "Formation string (e.g. 4-3-3)."
@@ -450,35 +430,31 @@ models:
       One row per player per fixture per team.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
-              - fixture_id
-              - team_id
-              - player_id
+          combination_of_columns:
+            - fixture_id
+            - team_id
+            - player_id
     columns:
       - name: fixture_id
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_fixtures')
-                field: fixture_id
+              to: ref('stg_fixtures')
+              field: fixture_id
       - name: team_id
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_teams')
-                field: team_id
+              to: ref('stg_teams')
+              field: team_id
       - name: player_id
         data_tests:
           - not_null:
               config:
                 severity: warn
           - relationships:
-              arguments:
-                to: ref('stg_players')
-                field: player_id
+              to: ref('stg_players')
+              field: player_id
               config:
                 severity: warn
       - name: player_name
@@ -504,34 +480,30 @@ models:
       Per-player per-fixture statistics. One row per player per team per fixture.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
-              - fixture_id
-              - team_id
-              - player_id
+          combination_of_columns:
+            - fixture_id
+            - team_id
+            - player_id
     columns:
       - name: fixture_id
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_fixtures')
-                field: fixture_id
+              to: ref('stg_fixtures')
+              field: fixture_id
       - name: team_id
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_teams')
-                field: team_id
+              to: ref('stg_teams')
+              field: team_id
       - name: team_name
       - name: player_id
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_players')
-                field: player_id
+              to: ref('stg_players')
+              field: player_id
               config:
                 severity: warn
       - name: player_name
@@ -588,20 +560,18 @@ models:
       MERGE on (league_id, league_season, team_id).
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
-              - league_id
-              - league_season
-              - team_id
-              - group_name
+          combination_of_columns:
+            - league_id
+            - league_season
+            - team_id
+            - group_name
     columns:
       - name: league_id
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_leagues')
-                field: league_id
+              to: ref('stg_leagues')
+              field: league_id
       - name: league_name
       - name: league_season
         data_tests:
@@ -610,9 +580,8 @@ models:
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_teams')
-                field: team_id
+              to: ref('stg_teams')
+              field: team_id
       - name: team_name
       - name: team_rank
         data_tests:
@@ -658,25 +627,22 @@ models:
       Refreshed quarterly, weekly during transfer windows.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
-              - team_id
-              - player_id
+          combination_of_columns:
+            - team_id
+            - player_id
     columns:
       - name: team_id
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_teams')
-                field: team_id
+              to: ref('stg_teams')
+              field: team_id
       - name: player_id
         data_tests:
           - not_null
           - relationships:
-              arguments:
-                to: ref('stg_players')
-                field: player_id
+              to: ref('stg_players')
+              field: player_id
               config:
                 severity: warn
       - name: team_name

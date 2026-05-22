@@ -1,3 +1,20 @@
+-- Model: stg_fixture_events
+-- Layer: staging
+-- Grain: 1 row per in-match event (unique_key includes fixture, team, player, type, detail, minute)
+-- Materialization: incremental (merge)
+-- Source: football_raw.raw_fixture_events
+-- Purpose:
+--   Raw in-match events — goals, cards, substitutions, VAR. Classification flags are added in
+--   int_fixture_events, not here.
+-- Transformations:
+--   Lowercases event_type and event_detail for consistent downstream CASE logic; trims names;
+--   incremental on ingested_at.
+-- Downstream:
+--   int_fixture_events → fact_fixture_events
+-- Notes:
+--   assist_player_* on substitutions means player ON — see int_fixture_events header for API quirks.
+--   'Missed Penalty' arrives with event_type = 'goal' — excluded from is_goal in intermediate.
+
 {{ config(
     materialized='incremental',
     unique_key=[

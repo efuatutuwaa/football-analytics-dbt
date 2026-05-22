@@ -1,3 +1,18 @@
+-- Model: stg_league_seasons
+-- Layer: staging
+-- Grain: 1 row per league_id + season_year
+-- Materialization: view
+-- Source: football_raw.raw_league_seasons
+-- Purpose:
+--   Season calendar and API coverage flags per competition edition (start/end dates,
+--   is_current_season, which endpoints have data for that league-season).
+-- Transformations:
+--   Renames coverage_* columns to has_*_coverage booleans used on int_fixture_spine.
+-- Downstream:
+--   int_fixture_spine (left join on league_id + league_season for season dates and coverage flags)
+-- Notes:
+--   Coverage flags indicate what the API supports for that edition — not whether this project ingested it.
+
 {{ config(materialized='view') }}
 
 with source as (

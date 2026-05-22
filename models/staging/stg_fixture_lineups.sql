@@ -1,3 +1,17 @@
+-- Model: stg_fixture_lineups
+-- Layer: staging
+-- Grain: 1 row per team per fixture (fixture_id, team_id)
+-- Materialization: incremental (merge). unique_key: fixture_id + team_id
+-- Source: football_raw.raw_fixture_lineups
+-- Purpose:
+--   Team formation and coach per match (e.g. 4-3-3). Player-level lineup rows are in stg_fixture_lineup_players.
+-- Transformations:
+--   Trims formation and coach fields; incremental on ingested_at.
+-- Downstream:
+--   Lineup marts and analysis (not yet wired through intermediate — available for future models)
+-- Notes:
+--   Coverage depends on league-season; see stg_league_seasons.has_fixtures_lineups_coverage.
+
 {{ config(materialized='incremental',
     unique_key=['fixture_id', 'team_id'],
     incremental_strategy='merge'

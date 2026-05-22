@@ -1,14 +1,29 @@
 -- Model: int_club_matchday_metrics
--- Grain: 1 row per team_id, fixture_id
--- Materialization: incremental (merge) — match results accumulate throughout the season
--- Sources: int_fixture_spine (primary), stg_teams (inner joined on team_id for team attributes),
---          stg_fixture_statistics (left joined on fixture_id + team_id for shots, possession, passes)
--- Competitions: all (league, domestic cup, international — filter downstream as needed)
+-- Grain: 1 row per club per fixture (fixture_id, team_id). Each match has two rows (home + away).
+-- Materialization: incremental (merge). unique_key: fixture_id + team_id.
+--   Incremental is safe here — no partition-wide window flags (unlike is_farthest_round models).
+-- Sources:
+--   int_fixture_spine — match context, scores, status, timing
+--   stg_teams — inner join; is_national_team = false (clubs only)
+--   stg_fixture_statistics — left join on fixture_id + team_id (null if API omitted stats)
+-- Competitions: all 15 tracked league_ids — filter league_id downstream for league / cup / intl
 -- Purpose:
---   Tracks per-match outcomes for each club across all competitions.
---   Captures goals scored/conceded, match result, clean sheets, home/away context,
---   and match statistics (shots, possession, corners, fouls, passes).
---   Designed to feed fact_club_match_stats and support rolling form analysis downstream.
+--   Club-centric match fact before core. Perspective-normalised columns (goals_scored,
+--   goals_conceded, team_halftime_score, etc.) always refer to the club in the row.
+-- Business logic:
+--   Finished match_status_short values (from API-Football):
+--     FT  — full time; outcome decided in regulation (90 minutes + stoppage)
+--     AET — after extra time; outcome decided in extra time, no penalty shootout
+--     PEN — penalties; outcome decided on shootout (fulltime scores reflect final result)
+--   match_result — win / draw / loss only for FT, AET, or PEN; null for NS, LIVE, HT, etc.
+--   is_clean_sheet — true when zero goals conceded at full time; null until FT, AET, or PEN
+--   goal_difference — goals_scored minus goals_conceded
+--   Dedup: qualify row_number() over (fixture_id, team_id) order by ingested_at desc
+-- Downstream:
+--   fact_club_match_stats (core passthrough)
+--   int_club_season_metrics (inner join int_club_league_periods — domestic leagues only)
+--   Rolling-form marts and ad-hoc match analysis
+-- Excludes: season aggregates, cup run progression, intl runs, national teams, player-level stats
 
 {{ config(
     materialized='incremental',
@@ -82,11 +97,17 @@ matchday_metrics as (
         f.penalty_away_team_score as opponent_penalty_score,
         f.fulltime_home_team_score - f.fulltime_away_team_score as goal_difference,
         case
-            when f.fulltime_home_team_score > f.fulltime_away_team_score then 'win'
-            when f.fulltime_home_team_score < f.fulltime_away_team_score then 'loss'
-            else 'draw'
+            when f.match_status_short in ('FT', 'AET', 'PEN') then
+                case
+                    when f.fulltime_home_team_score > f.fulltime_away_team_score then 'win'
+                    when f.fulltime_home_team_score < f.fulltime_away_team_score then 'loss'
+                    else 'draw'
+                end
         end as match_result,
-        coalesce(f.fulltime_away_team_score = 0, false) as is_clean_sheet,
+        case
+            when f.match_status_short in ('FT', 'AET', 'PEN')
+                then coalesce(f.fulltime_away_team_score = 0, false)
+        end as is_clean_sheet,
         -- match statistics (from fixture_stats)
         fs.shots_on_goal,
         fs.shots_off_goal,
@@ -157,11 +178,17 @@ matchday_metrics as (
         f.penalty_home_team_score as opponent_penalty_score,
         f.fulltime_away_team_score - f.fulltime_home_team_score as goal_difference,
         case
-            when f.fulltime_away_team_score > f.fulltime_home_team_score then 'win'
-            when f.fulltime_away_team_score < f.fulltime_home_team_score then 'loss'
-            else 'draw'
+            when f.match_status_short in ('FT', 'AET', 'PEN') then
+                case
+                    when f.fulltime_away_team_score > f.fulltime_home_team_score then 'win'
+                    when f.fulltime_away_team_score < f.fulltime_home_team_score then 'loss'
+                    else 'draw'
+                end
         end as match_result,
-        coalesce(f.fulltime_home_team_score = 0, false) as is_clean_sheet,
+        case
+            when f.match_status_short in ('FT', 'AET', 'PEN')
+                then coalesce(f.fulltime_home_team_score = 0, false)
+        end as is_clean_sheet,
         -- match statistics (from fixture_stats)
         fs.shots_on_goal,
         fs.shots_off_goal,
@@ -188,3 +215,7 @@ matchday_metrics as (
 )
 
 select * from matchday_metrics
+qualify row_number() over (
+    partition by fixture_id, team_id
+    order by ingested_at desc
+) = 1

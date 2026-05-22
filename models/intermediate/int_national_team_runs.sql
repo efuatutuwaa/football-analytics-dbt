@@ -1,32 +1,32 @@
 -- Model: int_national_team_runs
--- Grain: 1 row per team_id, fixture_id (one row per national team per match)
--- Materialization: incremental (merge) — tournament fixtures accumulate as matches are played
--- Sources: int_fixture_spine (primary, filtered to league_id in (1, 4), qualifying rounds excluded),
---          stg_teams (inner joined on team_id, filtered to is_national_team = true),
---          stg_standings (left joined on league_id + league_season + team_id for group stage record)
--- Competitions: FIFA World Cup (1), UEFA European Championship (4)
+-- Grain: 1 row per national team per fixture (fixture_id, team_id, league_id, league_season, league_round)
+-- Materialization: table (full refresh) — required so is_farthest_round sees the full edition partition
+-- Sources:
+--   int_fixture_spine — league_id in (1, 4); league_round not like 'Qualifying%'
+--   stg_teams — inner join; is_national_team = true
+--   stg_standings — left join for group-stage snapshot fields
+-- Competitions (league_id):
+--   1 FIFA World Cup, 4 UEFA European Championship (tournament proper only — no qualifying)
 -- Purpose:
---   Tracks each national team's progression through international tournaments per edition.
---   Captures group stage record (where applicable) and the farthest knockout round reached.
---   Qualifying rounds are excluded — this model covers the tournament proper only.
---   Note: home/away designation is dropped as most matches are played at neutral venues.
---   Note: coverage is limited to World Cup and Euros only. Metrics scoped to
---   "all international competitions" will be incomplete for non-European nations.
+--   National team perspective on finals-tournament fixtures. Two rows per match.
+--   No is_home column — most matches are neutral-site. Perspective scores normalised to team in row.
+-- Business logic:
+--   round_order — group and knockout rounds; is_farthest_round on deepest round (group or knockout)
+--   Dedup: qualify on fixture_id, team_id, league_id, league_season, league_round
+-- Downstream:
+--   fact_national_team_run, mart_national_team_results
+-- Notes:
+--   Coverage is WC + Euros only — AFCON, Copa América, etc. are not in LEAGUE_IDS.
+--   "All international football" metrics will under-represent non-European nations by design.
+-- Excludes: clubs, domestic leagues, domestic cups, qualifying rounds
 
-{{ config(
-    materialized='incremental',
-    unique_key=['fixture_id', 'team_id', 'league_id', 'league_season', 'league_round'],
-    incremental_strategy='merge'
-) }}
+{{ config(materialized='table') }}
 
 with fixtures as (
     select * from {{ ref('int_fixture_spine') }}
     where
         league_id in (1, 4) -- filter world cup and european championship
         and league_round not like 'Qualifying%' -- exclude qualifying rounds
-    {% if is_incremental() %}
-        and ingested_at > (select max(ingested_at) from {{ this }})  -- noqa: RF02
-    {% endif %}
 ),
 
 teams as (

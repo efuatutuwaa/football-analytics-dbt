@@ -1,14 +1,19 @@
 -- Model: int_club_league_periods
--- Grain: 1 row per team_id, league_id, season_year
--- Materialization: table — static reference; season participation does not change once ingested
--- Sources: stg_team_seasons (primary), stg_leagues (inner joined on league_id, filtered to
---          league_type = 'league' to exclude cups and tournaments),
---          stg_teams (inner joined on team_id, filtered to is_national_team = false)
+-- Grain: 1 row per club per domestic league per season (team_id, league_id, season_year)
+-- Materialization: table — participation reference; full refresh is inexpensive
+-- Sources:
+--   stg_team_seasons — bridge of team ↔ league-season
+--   stg_leagues — inner join; league_type = 'league' (excludes cups and tournaments)
+--   stg_teams — inner join; is_national_team = false (clubs only)
 -- Purpose:
---   Defines which clubs competed in which domestic leagues per season. The inner joins on
---   league_type and is_national_team ensure cups, international tournaments, and national
---   team entries are excluded. Serves as the club-league-season spine for tracking promotions,
---   relegations, and competition participation. Feeds int_club_season_metrics.
+--   Authoritative list of which clubs competed in which domestic leagues each season.
+--   Enriches with league and club attributes for joins without hitting multiple staging tables.
+-- Domestic leagues in scope (league_id):
+--   39 Premier League, 61 Ligue 1, 78 Bundesliga, 135 Serie A, 140 La Liga
+-- Downstream:
+--   int_club_season_metrics (inner join restricts matchday metrics to league fixtures only)
+--   fact_club_season, mart_club_season, promotion/relegation analysis
+-- Excludes: cups (45, 48, 66, 81, 137, 143), UCL/CWC (2, 15), national teams, WC/Euros (1, 4)
 
 {{ config(materialized='table') }}
 

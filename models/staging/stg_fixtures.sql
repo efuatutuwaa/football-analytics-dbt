@@ -1,3 +1,19 @@
+-- Model: stg_fixtures
+-- Layer: staging
+-- Grain: 1 row per fixture_id
+-- Materialization: incremental (merge). unique_key: fixture_id
+-- Source: football_raw.raw_fixtures
+-- Purpose:
+--   Core match schedule and result shell — teams, venue, kick-off, status, league context.
+--   Scores live in stg_fixture_scores; team match stats in stg_fixture_statistics.
+-- Transformations:
+--   Trims text fields; casts dates/timestamps; renames status_* and winner flags; incremental on ingested_at.
+-- Downstream:
+--   int_fixture_spine (primary parent for almost all match-level intermediate models)
+-- Notes:
+--   Re-fetched daily for active seasons so status transitions (NS → LIVE → FT) merge into the same row.
+--   is_home_team_winner / is_away_team_winner are null on draws and before kick-off.
+
 {{ config(
     materialized='incremental',
     unique_key='fixture_id',

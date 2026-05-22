@@ -1,27 +1,28 @@
 -- Model: int_club_domestic_cup_runs
--- Grain: 1 row per team_id, league_id (cup competition), league_season, league_round
--- Materialization: incremental (merge) — cup fixtures accumulate throughout the season
--- Sources: int_fixture_spine (primary), stg_teams (inner joined on team_id for team attributes)
--- Competitions: FA Cup (45), Carabao Cup (48), Coupe de France (66),
---               DFB-Pokal (81), Coppa Italia (137), Copa del Rey (143)
+-- Grain: 1 row per club per fixture (fixture_id, team_id, league_id, league_season, league_round)
+-- Materialization: table (full refresh) — required so is_farthest_round sees the full season partition
+-- Sources:
+--   int_fixture_spine — cup fixtures only (league_id in list below)
+--   stg_teams — inner join; is_national_team = false
+-- Competitions (league_id):
+--   45 FA Cup, 48 Carabao Cup, 66 Coupe de France, 81 DFB-Pokal, 137 Coppa Italia, 143 Copa del Rey
+--   England is the only country with two domestic cups in this dataset.
 -- Purpose:
---   Tracks each club's progression through domestic cup competitions per season.
---   Captures round-by-round results and the farthest stage reached.
---   Designed to complement int_club_league_periods to support double/treble analysis.
+--   Club perspective on every domestic cup match — scores, home/away, round, exit depth.
+--   Two rows per fixture (home + away). Perspective columns refer to the club in the row.
+-- Business logic:
+--   round_order — numeric rank of knockout round for ordering and max() windows
+--   is_farthest_round — true on every match in the club's deepest round that season, not exit-only
+--   Dedup: qualify row_number() over (fixture_id, team_id, league_id, league_season, league_round)
+-- Downstream:
+--   fact_club_domestic_cup_run, mart_club_domestic_cup_performance, double/treble with int_club_league_periods
+-- Excludes: domestic leagues, UCL/CWC, national teams, per-match stats (int_club_matchday_metrics)
 
-{{ config(
-    materialized='incremental',
-    unique_key=['fixture_id', 'team_id', 'league_id', 'league_season', 'league_round'],
-    incremental_strategy='merge'
-) }}
+{{ config(materialized='table') }}
 
 with fixtures as (
     select * from {{ ref('int_fixture_spine') }}
-    where
-        league_id in (45, 48, 66, 81, 137, 143) -- filter to domestic cup competitions
-    {% if is_incremental() %}
-        and ingested_at > (select max(ingested_at) from {{ this }})  -- noqa: RF02
-    {% endif %}
+    where league_id in (45, 48, 66, 81, 137, 143) -- filter to domestic cup competitions
 ),
 
 teams as (

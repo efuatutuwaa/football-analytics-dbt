@@ -1,13 +1,17 @@
 -- Model: int_player_match_stats
--- Grain: 1 row per player per fixture (player_id, fixture_id)
--- Materialization: incremental (merge) — player stats arrive nightly as matches complete
--- Sources: stg_player_statistics (primary), int_fixture_spine (left joined on fixture_id
---          for competition context, opponent, match date, home/away, and match result)
+-- Grain: 1 row per player per fixture (fixture_id, player_id). unique_key in config matches this.
+-- Materialization: incremental (merge). Incremental filter on stg_player_statistics.ingested_at
+-- Sources:
+--   stg_player_statistics — minutes, goals, assists, passes, cards, rating, etc.
+--   int_fixture_spine — left join on fixture_id for league, opponent, dates, home/away, team result
 -- Purpose:
---   Enriches raw per-fixture player statistics with match context from int_fixture_spine.
---   Adds competition type, opponent identity, home/away flag, and match result from the
---   player's team perspective. Serves as the shared base for int_player_season_metrics
---   and all player-level mart models.
+--   Player-match fact with competition context so season rollups and marts do not re-join the spine.
+--   Carries both raw per-match stats and fixture-level attributes (league_name, match_date, is_home).
+-- Downstream:
+--   int_player_season_metrics, fact_player_match_stats (core), player performance marts
+-- Excludes: Team-level aggregates (int_club_matchday_metrics), event-level rows (int_fixture_events)
+-- Notes:
+--   A player appears once per fixture per team in source; mid-match team changes are not modelled.
 
 {{ config(
     materialized='incremental',

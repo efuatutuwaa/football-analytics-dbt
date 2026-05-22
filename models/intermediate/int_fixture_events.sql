@@ -1,12 +1,15 @@
 -- Model: int_fixture_events
--- Grain: 1 row per fixture event (goal, card, substitution, VAR decision)
--- Materialization: incremental (merge) — new events arrive nightly as matches are played
--- Sources: stg_fixture_events (primary)
+-- Grain: 1 row per in-match event (fixture_id, team_id, player_id, event_type, event_detail,
+--        elapsed_minutes, extra_minutes)
+-- Materialization: incremental (merge). unique_key matches grain above. Incremental on ingested_at
+-- Sources: stg_fixture_events (primary; event_type and event_detail already lowercased)
 -- Purpose:
---   Takes each fixture event from stg_fixture_events and adds boolean classification
---   flags (is_goal, is_own_goal, is_penalty_goal, is_yellow_card, is_red_card,
---   is_substitution, is_var_decision) so downstream models can filter and aggregate
---   by event type without repeating CASE logic across multiple models.
+--   Event-level fact with boolean flags so marts filter without repeating CASE logic:
+--   is_goal, is_own_goal, is_penalty_goal, is_card, is_yellow_card, is_red_card,
+--   is_substitution, is_var_decision
+-- Downstream:
+--   fact_fixture_events (core passthrough), event-driven marts (goals timeline, cards, subs)
+-- Excludes: Aggregated player or team season stats — use int_player_* / int_club_* models
 --
 -- Known API data quirks:
 --   1. 'Missed Penalty' sits under event_type = 'goal' despite not being a goal.
@@ -25,6 +28,8 @@
 --      For goals: assist_player = the player who provided the assist.
 --      For substitutions: player = player coming OFF, assist_player = player coming ON.
 --      Downstream models must filter by event_type before interpreting these fields.
+--   6. is_red_card matches event_detail = 'red card' only; second-yellow ('yellow red card') may
+--      need a separate flag if required for discipline analysis.
 
 {{ config(
     materialized='incremental',
