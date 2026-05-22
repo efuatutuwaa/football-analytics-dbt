@@ -1,3 +1,17 @@
+-- Model: stg_fixture_scores
+-- Layer: staging
+-- Grain: 1 row per fixture_id
+-- Materialization: incremental (merge). unique_key: fixture_id
+-- Source: football_raw.raw_fixture_scores
+-- Purpose:
+--   Period scores (halftime, fulltime, extratime, penalties) joined onto int_fixture_spine.
+-- Transformations:
+--   Renames home/away columns to halftime_*, fulltime_*, extratime_*, penalty_*; incremental on ingested_at.
+-- Downstream:
+--   int_fixture_spine (left join — scores null until API publishes them)
+-- Notes:
+--   extratime_* and penalty_* are null when the match did not go to extra time or shootout.
+
 {{ config(materialized='incremental',
     unique_key=['fixture_id'],
     incremental_strategy='merge'

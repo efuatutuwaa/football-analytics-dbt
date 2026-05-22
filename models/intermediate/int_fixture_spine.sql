@@ -1,16 +1,25 @@
 -- Model: int_fixture_spine
 -- Grain: 1 row per fixture_id
--- Materialization: incremental (merge) — new fixtures are added nightly as they are scheduled
--- Sources: stg_fixtures (primary), stg_fixture_scores (left joined on fixture_id for
---          halftime/fulltime/extratime/penalty scores), stg_league_seasons (left joined on
---          league_id + season_year for season dates and coverage flags)
+-- Materialization: incremental (merge). unique_key: fixture_id. Incremental on stg_fixtures.ingested_at
+-- Sources:
+--   stg_fixtures — schedule, teams, venue, status, timing
+--   stg_fixture_scores — left join; halftime / fulltime / extratime / penalty scores
+--   stg_league_seasons — left join on league_id + league_season; season dates and coverage flags
 -- Purpose:
---   Denormalized fixture record covering all competitions and seasons. Derives match_date,
---   match_duration (elapsed + coalesce(extra_time, 0)), is_home_team_winner, and
---   is_away_team_winner. Carries halftime, fulltime, extratime, and penalty scores alongside
---   league coverage flags (events, lineups, standings, players, topscorers, injuries,
---   predictions, odds). Serves as the join foundation for all club- and player-level
---   intermediate models.
+--   Single denormalised match record for all downstream club and player intermediate models.
+--   Centralises score columns and renames status fields to match_status_* for consistency.
+-- Derived fields:
+--   match_duration = elapsed_minutes + coalesce(extra_time, 0)
+--   is_home_team_winner / is_away_team_winner from staging (null on draws and before kick-off)
+-- Coverage flags (from league_seasons):
+--   has_fixtures_events_coverage, has_fixtures_lineups_coverage, has_standings_coverage,
+--   has_players_coverage, has_topscorers_coverage, has_injuries_coverage,
+--   has_predictions_coverage, has_odds_coverage
+-- Downstream:
+--   Intermediate: int_club_matchday_metrics, int_club_domestic_cup_runs, int_club_intl_runs,
+--   int_national_team_runs, int_player_match_stats
+--   Core (consumption): fact_fixture — marts and BI should join fact_fixture, not this model
+-- Notes: Parent of the intermediate layer — run order should build this before dependents.
 
 {{ config(
     materialized='incremental',

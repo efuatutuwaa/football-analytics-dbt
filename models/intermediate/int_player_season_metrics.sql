@@ -1,13 +1,16 @@
 -- Model: int_player_season_metrics
--- Grain: 1 row per player per team per league per season
---        (a player who moved clubs mid-season gets one row per club)
--- Materialization: table — aggregated from int_player_match_stats
+-- Grain: 1 row per player per club per league per season (player_id, team_id, league_id, league_season)
+--   Mid-season transfers produce separate rows per club.
+-- Materialization: table — full refresh aggregate from int_player_match_stats
 -- Sources: int_player_match_stats (primary)
 -- Purpose:
---   Aggregates match-level player statistics into season totals per club per league.
---   Captures appearances, starts, minutes played, goals, assists, cards, and average
---   match rating. Feeds player-level mart models and supports season-on-season
---   performance comparisons and ranking across competitions.
+--   Season totals per player per club per competition — appearances, minutes, goals, assists,
+--   cards, pass/tackle/dribble sums, avg_rating (where rating present). Derived in dbt, not API.
+-- Aggregations:
+--   Group by player_id, team_id, league_id, league_season; sum numeric stats; avg on rating
+-- Downstream:
+--   fact_player_season, player ranking marts, season-on-season comparisons
+-- Excludes: Match-level detail (int_player_match_stats), team-level season stats (int_club_season_metrics)
 
 {{ config(materialized='table') }}
 

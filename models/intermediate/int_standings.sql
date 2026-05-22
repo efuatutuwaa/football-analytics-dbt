@@ -1,12 +1,17 @@
 -- Model: int_standings
--- Grain: 1 row per team, league, season, and group
--- Materialization: table — standings reflect the latest ingested snapshot
+-- Grain: 1 row per team per league per season per group (league_id, league_season, team_id, group_name)
+-- Materialization: table — full refresh; each build reflects latest stg_standings snapshot
 -- Sources: stg_standings (primary)
 -- Purpose:
---   Enriches standings data with derived metrics (win_rate, points_per_game) to serve
---   as the foundation for fact_standings. Carries the full home/away split alongside
---   the overall record. Note: stg_standings reflects the latest known state only —
---   no matchday column is available, so this model cannot produce a per-matchday history.
+--   League table fact with derived win_rate and points_per_game. Preserves home/away splits
+--   and promotion/relegation status fields from the API snapshot.
+-- Derived fields:
+--   win_rate = matches_won / matches_played (3 dp), points_per_game = team_points / matches_played (2 dp)
+-- Downstream:
+--   fact_standings (core); left join on int_club_intl_runs / int_national_team_runs for group-stage context
+-- Notes:
+--   Not a matchday history — no round-by-round table in the API. Weekly ingest overwrites via merge at staging.
+-- Excludes: Match-level results — use int_fixture_spine or int_club_matchday_metrics
 
 {{ config(materialized='table') }}
 

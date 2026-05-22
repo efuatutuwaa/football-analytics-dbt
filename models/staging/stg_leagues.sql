@@ -1,3 +1,18 @@
+-- Model: stg_leagues
+-- Layer: staging
+-- Grain: 1 row per competition (league_id)
+-- Materialization: view
+-- Source: football_raw.raw_leagues
+-- Purpose:
+--   Master list of the 15 tracked competitions (see scripts/ingestion/constants.py LEAGUE_IDS).
+--   Provides league name, type (league/cup/tournament), country, and logo for dims and joins.
+-- Transformations:
+--   Casts league_id to int; lowercases league_type; renames country fields to league_country_*.
+-- Downstream:
+--   dim_league, int_club_league_periods (filtered to league_type = 'league'), all competition-scoped facts
+-- Notes:
+--   Ingestion is scoped to LEAGUE_IDS — rows outside that list should not appear in raw.
+
 {{ config(materialized='view') }}
 
 with source as (

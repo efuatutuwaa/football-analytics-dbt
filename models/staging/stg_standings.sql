@@ -1,3 +1,18 @@
+-- Model: stg_standings
+-- Layer: staging
+-- Grain: 1 row per league_id + league_season + team_id + group_name
+-- Materialization: incremental (merge) — weekly refresh merges latest table snapshot
+-- Source: football_raw.raw_standings
+-- Purpose:
+--   Current league table snapshot (rank, points, W/D/L, home/away splits, form string).
+--   Not a matchday history — one row per team per group reflects latest API state only.
+-- Transformations:
+--   Renames API columns (rank → team_rank, all_* → matches_*, etc.); trims text; incremental on ingested_at.
+-- Downstream:
+--   int_standings → fact_standings; left join on int_club_intl_runs / int_national_team_runs for group stage
+-- Notes:
+--   group_name distinguishes groups in tournaments; use empty or single group for straight leagues.
+
 {{ config(
     materialized='incremental',
     unique_key=['league_id', 'league_season', 'team_id', 'group_name'],

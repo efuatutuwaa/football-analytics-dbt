@@ -1,16 +1,16 @@
 -- Model: int_player_club_periods
--- Grain: 1 row per player per club stint (player_id, team_id, transfer_date)
--- Materialization: table — lead() backfills period_end_date on historical rows when a new
---                  transfer arrives; incremental merge cannot handle that backfill
+-- Grain: 1 row per player per club stint (player_id, team_id / new_team_id, transfer_date as period_start)
+-- Materialization: table (full refresh) — lead() must rewrite period_end_date on prior rows when new transfers ingest
 -- Sources: int_transfers (primary)
 -- Purpose:
---   Derives club stint periods from transfer records. For each transfer, the player
---   joined the new club on transfer_date (period_start_date). The period_end_date is
---   the transfer_date of their next move, derived using a lead() window function
---   partitioned by player_id and ordered by transfer_date. A null period_end_date
---   means the player is still at that club.
---   Feeds int_player_match_stats and mart models that need to link a player's
---   match appearance to their club at the time.
+--   Contiguous club stints for each player from transfer history.
+--   period_start_date = transfer_date of the move in; period_end_date = lead(transfer_date) per player
+--   (null period_end_date = still at club).
+-- Downstream:
+--   Marts linking appearances to club at match date; squad timeline analysis
+-- Notes:
+--   Cannot be incremental — a new transfer backfills end dates on earlier stints.
+-- Excludes: Loan return semantics beyond transfer_type — interpret transfer_type from int_transfers
 
 {{ config(materialized='table') }}
 

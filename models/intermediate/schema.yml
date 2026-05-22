@@ -38,8 +38,7 @@ models:
         tests:
           - not_null
           - accepted_values:
-              arguments:
-                values: ['goal', 'card', 'subst', 'var']
+              values: ['goal', 'card', 'subst', 'var']
       - name: event_detail
         description: Raw event detail from the API (e.g. normal goal, own goal, yellow card). Lowercased at staging.
       - name: event_comments
@@ -62,8 +61,7 @@ models:
         description: True if the event is a VAR review decision.
     tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
+          combination_of_columns:
             - fixture_id
             - team_id
             - player_id
@@ -218,8 +216,7 @@ models:
         description: Country the club is based in.
     tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
+          combination_of_columns:
             - team_id
             - league_id
             - season_year
@@ -233,7 +230,8 @@ models:
       Perspective-aware columns (goals_scored, team_halftime_score, etc.) are normalised so
       "team" always refers to the club in that row. Filter on league_id downstream to scope to
       a specific competition type. Feeds fact_club_match_stats and rolling form analysis.
-      Materialized as incremental (merge) — match results accumulate nightly.
+      Materialized as incremental (merge). match_result and is_clean_sheet are null until
+      match_status_short is FT, AET, or PEN. Deduped to latest ingested_at per fixture_id + team_id.
     columns:
       - name: fixture_id
         description: Identifier for the fixture.
@@ -318,13 +316,15 @@ models:
       - name: goal_difference
         description: goals_scored minus goals_conceded for this fixture.
       - name: match_result
-        description: Match result from this club's perspective (win, draw, loss).
+        description: >
+          win, draw, or loss from this club's perspective. Null for fixtures not yet finished
+          (match_status_short not in FT, AET, PEN).
         tests:
           - accepted_values:
-              arguments:
-                values: ['win', 'draw', 'loss']
+              values: ['win', 'draw', 'loss']
       - name: is_clean_sheet
-        description: True if this club conceded zero goals at full time.
+        description: >
+          True if this club conceded zero goals at full time. Null for unfinished fixtures.
       - name: shots_on_goal
         description: Shots on goal (on target).
       - name: shots_off_goal
@@ -361,8 +361,7 @@ models:
         description: Timestamp when the record was ingested.
     tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
+          combination_of_columns:
             - fixture_id
             - team_id
 
@@ -408,8 +407,7 @@ models:
         description: Matches in which the club conceded zero goals.
     tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
+          combination_of_columns:
             - team_id
             - league_id
             - league_season
@@ -449,22 +447,19 @@ models:
         description: Normalized transfer type — permanent, loan, loan_return, free, or unknown.
         tests:
           - accepted_values:
-              arguments:
-                values: ['permanent', 'loan', 'loan_return', 'free', 'unknown']
+              values: ['permanent', 'loan', 'loan_return', 'free', 'unknown']
       - name: transfer_fee
         description: Raw fee string from the API (e.g. € 75M). Null for non-fee transfers.
       - name: transfer_window
         description: Transfer window the move occurred in — summer (Jun–Aug), winter (Jan), or emergency.
         tests:
           - accepted_values:
-              arguments:
-                values: ['summer', 'winter', 'emergency']
+              values: ['summer', 'winter', 'emergency']
       - name: ingested_at
         description: Timestamp when the transfer record was ingested.
     tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
+          combination_of_columns:
             - player_id
             - team_id
             - period_start_date
@@ -502,20 +497,17 @@ models:
         description: Normalized transfer type — always permanent for fee-bearing transfers.
         tests:
           - accepted_values:
-              arguments:
-                values: ['permanent', 'loan', 'loan_return', 'free', 'unknown']
+              values: ['permanent', 'loan', 'loan_return', 'free', 'unknown']
       - name: transfer_window
         description: Transfer window the move occurred in — summer (Jun–Aug), winter (Jan), or emergency.
         tests:
           - accepted_values:
-              arguments:
-                values: ['summer', 'winter', 'emergency']
+              values: ['summer', 'winter', 'emergency']
       - name: ingested_at
         description: Timestamp when the transfer record was ingested.
     tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
+          combination_of_columns:
             - player_id
             - team_id
             - transfer_date
@@ -576,8 +568,7 @@ models:
         description: Result from the player's team perspective (win, draw, loss). Null if match not yet completed.
         tests:
           - accepted_values:
-              arguments:
-                values: ['win', 'draw', 'loss']
+              values: ['win', 'draw', 'loss']
       - name: minutes_played
         description: Total minutes the player was on the pitch.
       - name: offsides
@@ -638,8 +629,7 @@ models:
         description: Timestamp when the record was ingested.
     tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
+          combination_of_columns:
             - fixture_id
             - player_id
 
@@ -704,8 +694,7 @@ models:
         description: Average match rating across appearances with a rating.
     tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
+          combination_of_columns:
             - player_id
             - team_id
             - league_id
@@ -719,8 +708,9 @@ models:
       del Rey (143). Each fixture fans out to two rows — one per team perspective.
       Perspective-aware columns (goals_scored, team_halftime_score, etc.) are normalised so
       "team" always refers to the club in that row. round_order drives the is_farthest_round
-      window function. Designed to complement int_club_league_periods for double/treble
-      analysis. Materialized as incremental (merge) — cup fixtures accumulate nightly.
+      window over the full season partition. Designed to complement int_club_league_periods for double/treble
+      analysis.
+      Materialized as table (full refresh) so is_farthest_round stays correct when clubs advance.
     columns:
       - name: fixture_id
         description: Identifier for the fixture.
@@ -731,8 +721,7 @@ models:
         tests:
           - not_null
           - accepted_values:
-              arguments:
-                values: [45, 48, 66, 81, 137, 143]
+              values: [45, 48, 66, 81, 137, 143]
       - name: team_id
         description: Identifier for the club in this row.
         tests:
@@ -772,7 +761,9 @@ models:
       - name: round_order
         description: Numeric rank of the round for ordering and window function comparisons.
       - name: is_farthest_round
-        description: True if this is the farthest round the club reached in this cup and season.
+        description: >
+          True for all fixtures in the club's deepest round that season (not only the exit match).
+          Requires full table refresh — incremental runs would leave stale true values on earlier rounds.
       - name: match_date
         description: Calendar date of the match.
       - name: match_timestamp
@@ -815,8 +806,7 @@ models:
         description: Timestamp when the record was ingested.
     tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
+          combination_of_columns:
             - fixture_id
             - team_id
             - league_id
@@ -831,9 +821,9 @@ models:
       group stage record). Each fixture fans out to two rows — one per team perspective.
       Perspective-aware columns (goals_scored, team_halftime_score, etc.) are normalised so
       "team" always refers to the club in that row. round_order drives the is_farthest_round
-      window function. Note: the Club World Cup changed format significantly in 2025 (7-team
-      to 32-team) — account for this when comparing across seasons. Materialized as
-      incremental (merge) — tournament fixtures accumulate nightly.
+      window over the full season partition. Note: the Club World Cup changed format significantly in 2025 (7-team to 32-team) —
+      account for this when comparing across seasons. Materialized as table (full refresh)
+      so is_farthest_round stays correct when clubs advance.
     columns:
       - name: fixture_id
         description: Identifier for the fixture.
@@ -844,8 +834,7 @@ models:
         tests:
           - not_null
           - accepted_values:
-              arguments:
-                values: [2, 15]
+              values: [2, 15]
       - name: team_id
         description: Identifier for the club in this row.
         tests:
@@ -885,7 +874,9 @@ models:
       - name: round_order
         description: Numeric rank of the round for ordering and window function comparisons.
       - name: is_farthest_round
-        description: True if this is the farthest round the club reached in this tournament and season.
+        description: >
+          True for all fixtures in the club's deepest round that season (not only the exit match).
+          Requires full table refresh — incremental runs would leave stale true values on earlier rounds.
       - name: match_date
         description: Calendar date of the match.
       - name: match_timestamp
@@ -946,8 +937,7 @@ models:
         description: Timestamp when the record was ingested.
     tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
+          combination_of_columns:
             - fixture_id
             - team_id
             - league_id
@@ -1039,12 +1029,11 @@ models:
         description: Timestamp when the record was ingested.
     tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
-              - team_id
-              - league_id
-              - league_season
-              - group_name
+          combination_of_columns:
+            - team_id
+            - league_id
+            - league_season
+            - group_name
 
   - name: int_transfers
     description: >
@@ -1084,24 +1073,21 @@ models:
         description: Normalized transfer type — permanent, loan, loan_return, free, or unknown.
         tests:
           - accepted_values:
-              arguments:
-                values: ['permanent', 'loan', 'loan_return', 'free', 'unknown']
+              values: ['permanent', 'loan', 'loan_return', 'free', 'unknown']
       - name: transfer_fee
         description: Raw fee string from the API (e.g. € 75M). Null for non-fee transfers.
       - name: transfer_window
         description: Transfer window the move occurred in — summer (Jun–Aug), winter (Jan), or emergency.
         tests:
           - accepted_values:
-              arguments:
-                values: ['summer', 'winter', 'emergency']
+              values: ['summer', 'winter', 'emergency']
       - name: last_updated
         description: Timestamp of the last update from the source API.
       - name: ingested_at
         description: Timestamp when the record was ingested.
     tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
+          combination_of_columns:
             - player_id
             - transfer_date
             - new_team_id
@@ -1114,9 +1100,10 @@ models:
       stg_teams (inner joined, filtered to is_national_team = true), stg_standings (left
       joined for group stage record). Home/away designation is dropped — most matches are
       played at neutral venues. Qualifying rounds are excluded; this model covers the
-      tournament proper only. Materialized as incremental (merge). Note: coverage is
-      limited to World Cup and Euros — metrics scoped to all international competitions
-      will be incomplete for non-European nations.
+      tournament proper only. round_order drives the is_farthest_round window over the full
+      season partition. Materialized as table (full refresh) so is_farthest_round stays correct
+      when teams advance. Note: coverage is limited to World Cup and Euros — metrics scoped to
+      all international competitions will be incomplete for non-European nations.
     columns:
       - name: fixture_id
         description: Identifier for the fixture.
@@ -1131,8 +1118,7 @@ models:
         tests:
           - not_null
           - accepted_values:
-              arguments:
-                values: [1, 4]
+              values: [1, 4]
       - name: league_season
         description: Year of the tournament edition.
         tests:
@@ -1166,7 +1152,9 @@ models:
       - name: round_order
         description: Numeric rank of the round for ordering and window function comparisons.
       - name: is_farthest_round
-        description: True if this is the farthest round the team reached in this tournament edition.
+        description: >
+          True for all fixtures in the team's deepest round that edition (not only the exit match).
+          Requires full table refresh — incremental runs would leave stale true values on earlier rounds.
       - name: group_name
         description: Group the team was assigned to (group stage only, null in knockout rounds).
       - name: group_position
@@ -1187,8 +1175,7 @@ models:
         description: Goal difference in the group stage.
     tests:
       - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns:
+          combination_of_columns:
             - fixture_id
             - team_id
             - league_id

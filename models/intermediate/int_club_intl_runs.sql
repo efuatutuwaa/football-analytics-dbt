@@ -1,28 +1,32 @@
 -- Model: int_club_intl_runs
--- Grain: 1 row per team_id, league_id (tournament), league_season, league_round
--- Materialization: incremental (merge) — tournament fixtures accumulate throughout the season
--- Sources: int_fixture_spine (primary), stg_teams (inner joined on team_id for team attributes),
---          stg_standings (left joined on league_id + league_season + team_id for group stage record)
--- Competitions: UEFA Champions League (2), FIFA Club World Cup (15)
+-- Grain: 1 row per club per fixture (fixture_id, team_id, league_id, league_season, league_round)
+-- Materialization: table (full refresh) — required so is_farthest_round sees the full season partition
+-- Sources:
+--   int_fixture_spine — league_id in (2, 15)
+--   stg_teams — inner join; clubs only
+--   stg_standings — left join on league_id + league_season + team_id for group-stage snapshot fields
+-- Competitions (league_id):
+--   2 UEFA Champions League, 15 FIFA Club World Cup
 -- Purpose:
---   Tracks each club's progression through international club tournaments per season.
---   Captures group stage standing (where applicable) and knockout round exits.
---   Note: FIFA Club World Cup changed format significantly in 2025 (7-team to 32-team).
---   Downstream models should account for this structural change when comparing across seasons.
+--   Club perspective on European / global tournament matches with group-stage context where available.
+--   Two rows per fixture. is_home and perspective scores included (unlike national team runs).
+-- Business logic:
+--   round_order — group and knockout rounds mapped to numeric ranks
+--   is_farthest_round — true on every match in deepest round (group or knockout), not exit-only
+--   Group columns (group_name, group_points, etc.) from standings — null in knockout-only rows
+--   Dedup: qualify on fixture_id, team_id, league_id, league_season, league_round
+-- Downstream:
+--   fact_club_intl_run, mart_club_european_performance
+-- Notes:
+--   Club World Cup format changed in 2025 (7-team → 32-team) — compare seasons cautiously.
+--   UCL always has group stage in scope; CWC group stage mainly from 2025 edition onward.
+-- Excludes: domestic leagues, domestic cups, national teams
 
-{{ config(
-    materialized='incremental',
-    unique_key=['fixture_id', 'team_id', 'league_id', 'league_season', 'league_round'],
-    incremental_strategy='merge'
-) }}
+{{ config(materialized='table') }}
 
 with fixtures as (
     select * from {{ ref('int_fixture_spine') }}
-    where
-        league_id in (2, 15) -- filter club international competitions
-    {% if is_incremental() %}
-        and ingested_at > (select max(ingested_at) from {{ this }})  -- noqa: RF02
-    {% endif %}
+    where league_id in (2, 15) -- filter club international competitions
 ),
 
 teams as (

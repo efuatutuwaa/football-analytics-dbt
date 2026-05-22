@@ -1,15 +1,19 @@
 -- Model: int_transfers
--- Grain: 1 row per player transfer (player_id, transfer_date, new_team_id, previous_team_id)
--- Materialization: table
--- Sources: stg_transfers (primary)
+-- Grain: 1 row per player move (player_id, new_team_id, transfer_date) after dedup
+-- Materialization: table — full refresh; lead()-based models downstream need consistent history
+-- Sources: stg_transfers (primary; excludes rows where new_team_id is null)
 -- Purpose:
---   Enriches staging transfer records with business logic classifications.
---   Splits the raw transfer_type field (which the API uses for both the fee amount
---   and the transfer type) into a normalized transfer_type (permanent/loan/loan_return/
---   free/unknown) and transfer_fee (the raw monetary string where applicable).
---   Adds transfer_window tagging (summer/winter/emergency) based on transfer_date month.
---   Feeds int_player_club_periods (for club stint periods) and mart_transfer_window
---   (for transfer window analysis).
+--   Normalises API transfer_type (fee strings mixed with type labels) into:
+--   transfer_type (permanent / loan / loan_return / free / unknown) and transfer_fee (raw € string).
+--   Adds transfer_window: summer (Jun–Aug), winter (Jan), emergency (other months).
+-- Downstream:
+--   int_player_club_periods (stint start/end via lead), int_player_market_value_periods (fee rows),
+--   mart_transfer_window
+-- Filters:
+--   new_team_id is not null — drops free-agent releases with no destination club
+-- Dedup:
+--   qualify row_number() over (player_id, new_team_id, transfer_date) — drops duplicate API rows
+--   with conflicting previous_team_id (see stg_transfers vs this grain)
 --
 -- Raw transfer_type values observed in source data:
 --   Loan, Back from Loan, Return from loan → loan / loan_return
@@ -18,15 +22,6 @@
 --   € 1M, € 5M, € 75M, etc.              → permanent (fee = raw string)
 --   N/A, None, -, Raise                   → unknown
 --
--- Deduplication notes:
---   stg_transfers deduplicates on (player_id, transfer_date, team_in_id, team_out_id) — one row
---   per raw transfer record. This model applies a tighter dedup on (player_id, new_team_id,
---   transfer_date), dropping previous_team_id. Reason: the API occasionally returns the same
---   transfer event twice with different previous_team values (a data error). int_player_club_periods
---   keys on (player_id, new_team_id, transfer_date) with no previous_team, so those duplicates
---   would collide there. Records with no destination team (new_team_id is null) are also excluded
---   — these are free agent releases with no club to link a stint to.
-
 {{ config(materialized='table') }}
 
 with transfers as (
