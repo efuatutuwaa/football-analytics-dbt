@@ -2,7 +2,15 @@ import time
 import requests
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, LongType, TimestampType, BooleanType
+from pyspark.sql.types import (
+    StructType,
+    StructField,
+    StringType,
+    IntegerType,
+    LongType,
+    TimestampType,
+    BooleanType,
+)
 
 from constants import LEAGUE_IDS, SEASONS
 
@@ -14,47 +22,51 @@ ENDPOINT = "fixtures"
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
 
-FIXTURE_SCHEMA = StructType([
-    StructField("fixture_id", IntegerType(), True),
-    StructField("referee", StringType(), True),
-    StructField("timezone", StringType(), True),
-    StructField("match_date", TimestampType(), True),
-    StructField("match_timestamp", LongType(), True),
-    StructField("first_period_start", LongType(), True),
-    StructField("second_period_start", LongType(), True),
-    StructField("venue_id", IntegerType(), True),
-    StructField("venue_name", StringType(), True),
-    StructField("venue_city", StringType(), True),
-    StructField("status_long", StringType(), True),
-    StructField("status_short", StringType(), True),
-    StructField("elapsed_minutes", IntegerType(), True),
-    StructField("extra_time", IntegerType(), True),
-    StructField("league_id", IntegerType(), True),
-    StructField("league_name", StringType(), True),
-    StructField("league_country", StringType(), True),
-    StructField("league_season", IntegerType(), True),
-    StructField("league_round", StringType(), True),
-    StructField("home_team_id", IntegerType(), True),
-    StructField("home_team_name", StringType(), True),
-    StructField("home_team_winner", BooleanType(), True),
-    StructField("away_team_id", IntegerType(), True),
-    StructField("away_team_name", StringType(), True),
-    StructField("away_team_winner", BooleanType(), True),
-    StructField("ingested_at", TimestampType(), True),
-])
+FIXTURE_SCHEMA = StructType(
+    [
+        StructField("fixture_id", IntegerType(), True),
+        StructField("referee", StringType(), True),
+        StructField("timezone", StringType(), True),
+        StructField("match_date", TimestampType(), True),
+        StructField("match_timestamp", LongType(), True),
+        StructField("first_period_start", LongType(), True),
+        StructField("second_period_start", LongType(), True),
+        StructField("venue_id", IntegerType(), True),
+        StructField("venue_name", StringType(), True),
+        StructField("venue_city", StringType(), True),
+        StructField("status_long", StringType(), True),
+        StructField("status_short", StringType(), True),
+        StructField("elapsed_minutes", IntegerType(), True),
+        StructField("extra_time", IntegerType(), True),
+        StructField("league_id", IntegerType(), True),
+        StructField("league_name", StringType(), True),
+        StructField("league_country", StringType(), True),
+        StructField("league_season", IntegerType(), True),
+        StructField("league_round", StringType(), True),
+        StructField("home_team_id", IntegerType(), True),
+        StructField("home_team_name", StringType(), True),
+        StructField("home_team_winner", BooleanType(), True),
+        StructField("away_team_id", IntegerType(), True),
+        StructField("away_team_name", StringType(), True),
+        StructField("away_team_winner", BooleanType(), True),
+        StructField("ingested_at", TimestampType(), True),
+    ]
+)
 
-SCORE_SCHEMA = StructType([
-    StructField("fixture_id", IntegerType(), True),
-    StructField("halftime_home", IntegerType(), True),
-    StructField("halftime_away", IntegerType(), True),
-    StructField("fulltime_home", IntegerType(), True),
-    StructField("fulltime_away", IntegerType(), True),
-    StructField("extratime_home", IntegerType(), True),
-    StructField("extratime_away", IntegerType(), True),
-    StructField("penalty_home", IntegerType(), True),
-    StructField("penalty_away", IntegerType(), True),
-    StructField("ingested_at", TimestampType(), True),
-])
+SCORE_SCHEMA = StructType(
+    [
+        StructField("fixture_id", IntegerType(), True),
+        StructField("halftime_home", IntegerType(), True),
+        StructField("halftime_away", IntegerType(), True),
+        StructField("fulltime_home", IntegerType(), True),
+        StructField("fulltime_away", IntegerType(), True),
+        StructField("extratime_home", IntegerType(), True),
+        StructField("extratime_away", IntegerType(), True),
+        StructField("penalty_home", IntegerType(), True),
+        StructField("penalty_away", IntegerType(), True),
+        StructField("ingested_at", TimestampType(), True),
+    ]
+)
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
@@ -164,24 +176,50 @@ def get_last_ingested_at(endpoint: str, entity_id: int = None):
         return None
 
 
+def has_stale_ns_fixtures(league_id: int, season: int) -> bool:
+    """Return True if any fixture is still NS/TBD but its scheduled kick-off has passed.
+
+    This catches the timing race where the nightly job runs before or just after
+    the final matchday and ingests fixtures as NS, but the API has since updated
+    them to FT. Without this check those fixtures stay stale indefinitely once
+    the season falls outside the days_since >= 1 re-fetch window.
+    """
+    try:
+        result = spark.sql(f"""
+            SELECT count(*) AS cnt
+            FROM efua_data_platform.football_raw.raw_fixtures
+            WHERE league_id = {league_id}
+              AND league_season = {season}
+              AND status_short IN ('NS', 'TBD')
+              AND match_date < current_timestamp()
+        """).collect()
+        return result[0][0] > 0
+    except Exception:
+        return False
+
+
 def should_refetch_fixtures(league_id: int, season: int) -> bool:
     last_ingested = get_last_ingested_at(f"{ENDPOINT}_{season}", league_id)
     if not last_ingested:
         return True
     current_year = datetime.now().year
     days_since = (
-        datetime.now(tz=timezone.utc)
-        - last_ingested.replace(tzinfo=timezone.utc)
+        datetime.now(tz=timezone.utc) - last_ingested.replace(tzinfo=timezone.utc)
     ).days
     if season >= current_year - 1:
         return days_since >= 1
-    return False
+    # For completed seasons: re-fetch if any fixture is still NS/TBD past kick-off.
+    # Handles the case where the API lagged on the final matchday and the season
+    # was recorded as fully ingested before status updates arrived.
+    return has_stale_ns_fixtures(league_id, season)
 
 
 def update_metadata(
-    endpoint: str, rows_inserted: int,
-    status: str, entity_id: int = None,
-    started_at: datetime = None
+    endpoint: str,
+    rows_inserted: int,
+    status: str,
+    entity_id: int = None,
+    started_at: datetime = None,
 ):
     now = datetime.now(tz=timezone.utc)
     entity_val = str(entity_id) if entity_id else "NULL"
@@ -249,17 +287,25 @@ def main():
             for season in SEASONS:
                 requests_made = 0
                 if not should_refetch_fixtures(league_id, season):
-                    print(f"  League {league_id} season {season} "
-                          f"— completed season already ingested, skipping")
+                    print(
+                        f"  League {league_id} season {season} "
+                        f"— completed season already ingested, skipping"
+                    )
                     continue
+                stale_reason = (
+                    " (stale NS fixtures detected past kick-off)"
+                    if has_stale_ns_fixtures(league_id, season)
+                    else ""
+                )
                 started_at = datetime.now(tz=timezone.utc)
                 current_endpoint = f"{ENDPOINT}_{season}"
                 current_entity_id = league_id
-                print(f"\n  Fetching fixtures for league "
-                      f"{league_id} season {season}...")
+                print(
+                    f"\n  Fetching fixtures for league "
+                    f"{league_id} season {season}{stale_reason}..."
+                )
                 response = fetch_from_api(
-                    ENDPOINT,
-                    params={"league": league_id, "season": season}
+                    ENDPOINT, params={"league": league_id, "season": season}
                 )
                 records = response.get("response", [])
                 if not records:
@@ -267,9 +313,7 @@ def main():
                     continue
                 fixtures = [flatten_fixture(r) for r in records]
                 scores = [
-                    flatten_fixture_score(
-                        r.get("fixture", {}).get("id"), r
-                    )
+                    flatten_fixture_score(r.get("fixture", {}).get("id"), r)
                     for r in records
                 ]
                 fixture_rows = load_fixtures(fixtures)
@@ -279,15 +323,15 @@ def main():
                 update_metadata(
                     f"{ENDPOINT}_{season}",
                     fixture_rows + score_rows,
-                    "success", league_id,
-                    started_at=started_at
+                    "success",
+                    league_id,
+                    started_at=started_at,
                 )
         print("\n🎉 Fixtures ingestion complete!")
     except Exception as e:
         if current_endpoint:
             update_metadata(
-                current_endpoint, 0, "failed",
-                current_entity_id, started_at
+                current_endpoint, 0, "failed", current_entity_id, started_at
             )
         print(f"❌ Error: {e}")
         raise

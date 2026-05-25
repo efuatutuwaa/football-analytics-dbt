@@ -50,18 +50,20 @@ def get_players_to_skip(in_window: bool) -> set:
 
     Re-fetch strategy:
     - Active players with new transfers found on last fetch:
-      7 days in window, 30 days outside
-      ← catches free agents and emergency loans
+      7 days in window, 60 days outside
+      ← outside window: meaningful transfers are rare (free agents only
+        in big-5 leagues); 60-day lag acceptable, catches signings before next window
     - Active players with no new transfers on last fetch (stable history):
-      90 days in window, 180 days outside
-      ← history is unlikely to change, avoid burning API quota
+      90 days in window, 365 days outside
+      ← stable history won't change outside a window; skip for a full year
     - Inactive players:
-      30 days in window, 90 days outside
+      30 days in window, 365 days outside
+      ← inactive players almost never transfer; skip for a full year
 
     Returns set of player_ids to skip."""
-    active_threshold = 7 if in_window else 30
-    stable_threshold = 90 if in_window else 180
-    inactive_threshold = 30 if in_window else 90
+    active_threshold = 7 if in_window else 60
+    stable_threshold = 90 if in_window else 365
+    inactive_threshold = 30 if in_window else 365
     result = spark.sql(f"""
         WITH latest_fetch AS (
             SELECT
@@ -282,7 +284,9 @@ def main():
     active_ids = get_active_player_ids()
     in_window = is_transfer_window()
     players_to_skip = get_players_to_skip(in_window)
-    existing_combos = get_existing_transfer_combos()
+    # Loaded lazily on first real API call — skipped entirely when almost
+    # all players are within threshold (typical outside transfer window)
+    existing_combos = None
 
     print(f"  Total players: {len(player_ids)}")
     print(f"  Active players: {len(active_ids)}")
@@ -321,6 +325,11 @@ def main():
                 print(f"  Player {player_id} recently checked — skipping")
                 continue
 
+            # Load existing combos on first real API call
+            if existing_combos is None:
+                print("  Loading existing transfer combos...")
+                existing_combos = get_existing_transfer_combos()
+
             started_at = datetime.now(tz=timezone.utc)
             current_entity_id = player_id
             response = fetch_from_api(ENDPOINT, params={"player": player_id})
@@ -357,6 +366,9 @@ def main():
             pending_transfers.extend(new_transfers)
             success_records.append((player_id, len(new_transfers), started_at))
             print(f"  Player {player_id}: ✅ {len(new_transfers)} new transfers queued")
+
+        if not in_window and existing_combos is None:
+            print("  No players needed fetching outside transfer window — done early.")
 
         # single Spark write for all players — replaces one write per player
         write_transfers(pending_transfers)
