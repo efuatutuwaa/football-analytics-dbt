@@ -7,7 +7,7 @@
 --   period_start_date = transfer_date of the move in; period_end_date = lead(transfer_date) per player
 --   (null period_end_date = still at club).
 -- Downstream:
---   Marts linking appearances to club at match date; squad timeline analysis
+--   fact_player_club_period (core consumption), marts linking appearances to club at match date
 -- Notes:
 --   Cannot be incremental — a new transfer backfills end dates on earlier stints.
 -- Excludes: Loan return semantics beyond transfer_type — interpret transfer_type from int_transfers

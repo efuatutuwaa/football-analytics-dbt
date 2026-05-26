@@ -12,6 +12,7 @@
 --   Two rows per fixture. is_home and perspective scores included (unlike national team runs).
 -- Business logic:
 --   round_order — group and knockout rounds mapped to numeric ranks
+--   league_round_display — UEFA-style label via normalize_european_club_round (API may say 'Round of 32')
 --   is_farthest_round — true on every match in deepest round (group or knockout), not exit-only
 --   Group columns (group_name, group_points, etc.) from standings — null in knockout-only rows
 --   Dedup: qualify on fixture_id, team_id, league_id, league_season, league_round
@@ -184,8 +185,7 @@ round_ordered as (
             when league_round = 'Play-offs' then 25
             when league_round = '1st Round' then 25
             when league_round = '2nd Round' then 35
-            when league_round = 'Knockout Round Play-offs' then 35
-            when league_round = 'Round of 32' then 40
+            when league_round in ('Knockout Round Play-offs', 'Round of 32') then 35
             when league_round = 'Round of 16' then 50
             when league_round = '8th Finals' then 50
             when league_round = '5th Place Final' then 55
@@ -194,7 +194,8 @@ round_ordered as (
             when league_round = 'Semi-finals' then 70
             when league_round = 'Final' then 100
             else 0
-        end as round_order
+        end as round_order,
+        {{ normalize_european_club_round('league_round') }} as league_round_display
     from cup_runs
 
 )
@@ -217,6 +218,7 @@ select
     season_end_date,
     is_current_season,
     league_round,
+    league_round_display,
     round_order,
     round_order = max(round_order) over (
         partition by team_id, league_id, league_season
@@ -251,3 +253,7 @@ select
     group_goal_difference,
     ingested_at
 from round_ordered
+qualify row_number() over (
+    partition by fixture_id, team_id, league_id, league_season
+    order by round_order desc, match_date desc, ingested_at desc
+) = 1
