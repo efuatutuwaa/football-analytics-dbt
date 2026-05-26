@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" fill="none" role="img" aria-label="Football Analytics">
+  <rect width="180" height="180" rx="40" fill="#1a1a1a"/>
+  <path
+    d="M28 152 C28 45 45 28 152 28"
+    stroke="#c49a6c"
+    stroke-width="9"
+    stroke-linecap="round"
+    fill="none"
+    opacity="0.85"
+  />
+  <circle cx="90" cy="118" r="12" fill="#faf9f7"/>
+  <line x1="90" y1="132" x2="90" y2="152" stroke="#4a6fa5" stroke-width="7" stroke-linecap="round" opacity="0.7"/>
+</svg>
