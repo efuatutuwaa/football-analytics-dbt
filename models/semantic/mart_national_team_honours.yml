@@ -1,0 +1,49 @@
+semantic_models:
+  - name: national_team_honours
+    description: WC and Euros podium finishes (Winner, Runner-up, Semi-finalist).
+    model: ref('mart_national_team_honours')
+    defaults:
+      agg_time_dimension: tournament_year
+    entities:
+      - name: nation
+        type: primary
+        expr: team_id
+      - name: tournament
+        type: foreign
+        expr: league_id
+    dimensions:
+      - name: tournament_year
+        type: time
+        type_params:
+          time_granularity: year
+        expr: make_date(cast(league_season as int), 1, 1)
+        label: Tournament year
+      - name: tournament_name
+        type: categorical
+        expr: league_name
+        label: Tournament
+      - name: nation_name
+        type: categorical
+        expr: team_name
+        label: Nation
+      - name: tournament_placement
+        type: categorical
+        expr: tournament_placement
+        label: Placement
+    measures:
+      - name: national_podium_finishes
+        agg: count
+        expr: team_id
+        label: Podium finishes
+      - name: national_tournament_wins
+        agg: sum
+        expr: cast(is_winner as int)
+        label: Tournament wins
+      - name: national_edition_goals_scored
+        agg: sum
+        expr: goals_scored
+        label: Goals scored (edition)
+      - name: national_edition_goals_conceded
+        agg: sum
+        expr: goals_conceded
+        label: Goals conceded (edition)

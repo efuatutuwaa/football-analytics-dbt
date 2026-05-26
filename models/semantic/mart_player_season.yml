@@ -1,0 +1,110 @@
+semantic_models:
+  - name: player_season
+    description: >
+      Player season stats per club and league (mid-season transfers = multiple rows).
+      Grain player_id, team_id, league_id, league_season.
+    model: ref('mart_player_season')
+    defaults:
+      agg_time_dimension: league_season
+    entities:
+      - name: player
+        type: primary
+        expr: player_id
+      - name: club
+        type: foreign
+        expr: team_id
+      - name: player_league
+        type: foreign
+        expr: league_id
+    dimensions:
+      - name: league_season
+        type: time
+        type_params:
+          time_granularity: year
+        expr: make_date(cast(league_season as int), 1, 1)
+        label: Season
+      - name: league_name
+        type: categorical
+        expr: league_name
+        label: League
+      - name: player_name
+        type: categorical
+        expr: player_name
+        label: Player
+      - name: team_name
+        type: categorical
+        expr: team_name
+        label: Club
+    measures:
+      - name: player_season_rows
+        agg: count
+        expr: player_id
+        label: Player-season rows
+      - name: appearances
+        agg: sum
+        expr: appearances
+        label: Appearances
+      - name: total_starts
+        agg: sum
+        expr: total_starts
+        label: Starts
+      - name: minutes_played
+        agg: sum
+        expr: minutes_played
+        label: Minutes played
+      - name: goals
+        agg: sum
+        expr: goals
+        label: Goals
+      - name: assists
+        agg: sum
+        expr: assists
+        label: Assists
+      - name: total_shots
+        agg: sum
+        expr: total_shots
+        label: Shots
+      - name: shots_on_target
+        agg: sum
+        expr: shots_on_target
+        label: Shots on target
+      - name: yellow_cards
+        agg: sum
+        expr: yellow_cards
+        label: Yellow cards
+      - name: red_cards
+        agg: sum
+        expr: red_cards
+        label: Red cards
+      - name: total_passes
+        agg: sum
+        expr: total_passes
+        label: Passes
+      - name: total_tackles
+        agg: sum
+        expr: total_tackles
+        label: Tackles
+      - name: interceptions
+        agg: sum
+        expr: interceptions
+        label: Interceptions
+      - name: successful_dribbles
+        agg: sum
+        expr: successful_dribbles
+        label: Successful dribbles
+      - name: avg_goals_per_90
+        agg: average
+        expr: goals_per_90
+        label: Avg goals per 90
+      - name: avg_assists_per_90
+        agg: average
+        expr: assists_per_90
+        label: Avg assists per 90
+      - name: avg_rating
+        agg: average
+        expr: avg_rating
+        label: Avg match rating
+      - name: avg_shot_conversion_rate
+        agg: average
+        expr: shot_conversion_rate
+        label: Avg shot conversion rate
