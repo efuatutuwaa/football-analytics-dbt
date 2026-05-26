@@ -9,9 +9,9 @@
 -- Transformations:
 --   Trims names; casts ingested_at; passes through roster attributes.
 -- Downstream:
---   Squad marts and roster validation (not yet in intermediate layer)
+--   snapshots/scd_player_club (Type 2 audit on re-ingest)
 -- Notes:
---   Reflects current squad only — historical membership: int_player_club_periods (no core fact yet).
+--   Reflects current squad only — transfer stints: fact_player_club_period (not this snapshot).
 
 {{ config(materialized='view') }}
 

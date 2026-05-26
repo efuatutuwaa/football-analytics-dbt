@@ -7,9 +7,10 @@
 --     restricts to domestic league fixtures only
 -- Purpose:
 --   Season totals derived in dbt (not API /teams/statistics) — wins, draws, losses, goals,
---   goal difference, clean sheets. Only counts rows where match_result is not null (finished matches).
+--   goal difference, clean sheets. Finished league fixtures only (match_result not null).
 -- Aggregations:
---   matches_played = count(*), wins/draws/losses sum on match_result, goals summed, clean_sheets summed
+--   matches_played = count of finished fixtures (FT/AET/PEN); not scheduled/postponed rows on the calendar.
+--   wins/draws/losses sum on match_result; goals and clean_sheets on the same finished rows only.
 -- Downstream:
 --   fact_club_season, mart_club_season, season-on-season comparisons
 -- Excludes: domestic cups (int_club_domestic_cup_runs), European club comps (int_club_intl_runs)
@@ -45,6 +46,7 @@ season_metrics as (
         sum(goal_difference) as goal_difference,
         sum(case when is_clean_sheet then 1 else 0 end) as clean_sheets
     from matchday_metrics
+    where match_result is not null
     group by team_id, team_name, league_id, league_name, league_season
 )
 
