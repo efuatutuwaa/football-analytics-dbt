@@ -1,5 +1,7 @@
 import time
+import threading
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from pyspark.sql.types import (
@@ -17,8 +19,20 @@ API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
 ENDPOINT = "transfers"
 
+# Number of concurrent API requests — tune to your plan's req/min ceiling.
+# 3 workers × (0.5s sleep + ~0.3s latency) ≈ 3x serial throughput while
+# staying well within standard API-Football rate limits.
+API_CONCURRENCY = 3
+
+# Flush accumulated transfers to Delta every N players to bound memory
+# usage and preserve progress on partial failures.
+FLUSH_EVERY = 500
+
 spark = SparkSession.builder.getOrCreate()
+
 requests_made = 0
+requests_lock = threading.Lock()
+api_semaphore = threading.Semaphore(API_CONCURRENCY)
 
 
 def is_transfer_window() -> bool:
@@ -31,39 +45,39 @@ def is_transfer_window() -> bool:
     return month in [1, 2, 6, 7, 8]
 
 
-def get_active_player_ids() -> set:
-    """Get player IDs who appeared in at least one match.
-    Players with no match activity are unlikely to have
-    transfers in our tracked leagues — skip API call entirely.
-    Reduces 16,576 players to ~8,000 active players."""
+def get_players_to_fetch() -> list:
+    """Return player IDs that have at least one match appearance (active).
+    Merges the former get_player_ids + get_active_player_ids into one
+    query, cutting inactive players before the main loop entirely."""
     result = spark.sql("""
-        SELECT DISTINCT player_id
-        FROM efua_data_platform.football_raw.raw_player_statistics
-        WHERE player_id IS NOT NULL
+        SELECT DISTINCT p.player_id
+        FROM efua_data_platform.football_raw.raw_players p
+        INNER JOIN efua_data_platform.football_raw.raw_player_statistics s
+            ON p.player_id = s.player_id
+        WHERE p.player_id IS NOT NULL
+        ORDER BY p.player_id
     """).collect()
-    return {row[0] for row in result}
+    return [row[0] for row in result]
 
 
 def get_players_to_skip(in_window: bool) -> set:
-    """Single SQL query to determine which players
-    to skip based on re-fetch thresholds.
+    """Single SQL query to determine which players to skip based on
+    re-fetch thresholds.
 
     Re-fetch strategy:
     - Active players with new transfers found on last fetch:
-      7 days in window, 60 days outside
-      ← outside window: meaningful transfers are rare (free agents only
-        in big-5 leagues); 60-day lag acceptable, catches signings before next window
+      7 days in window, 30 days outside
+      ← catches free agents and emergency loans
     - Active players with no new transfers on last fetch (stable history):
-      90 days in window, 365 days outside
-      ← stable history won't change outside a window; skip for a full year
+      90 days in window, 180 days outside
+      ← history is unlikely to change, avoid burning API quota
     - Inactive players:
-      30 days in window, 365 days outside
-      ← inactive players almost never transfer; skip for a full year
+      30 days in window, 90 days outside
 
     Returns set of player_ids to skip."""
-    active_threshold = 7 if in_window else 60
-    stable_threshold = 90 if in_window else 365
-    inactive_threshold = 30 if in_window else 365
+    active_threshold = 7 if in_window else 30
+    stable_threshold = 90 if in_window else 180
+    inactive_threshold = 30 if in_window else 90
     result = spark.sql(f"""
         WITH latest_fetch AS (
             SELECT
@@ -112,29 +126,22 @@ def get_players_to_skip(in_window: bool) -> set:
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
-    """Fetch data from API-Football with rate limiting."""
+    """Fetch data from API-Football with rate limiting.
+    Thread-safe: semaphore controls concurrency, lock protects counter."""
     global requests_made
     url = f"{API_BASE_URL}/{endpoint}"
-    response = requests.get(url, headers=HEADERS, params=params)
-    response.raise_for_status()
-    requests_made += 1
-    remaining = response.headers.get("x-ratelimit-requests-remaining")
-    limit = response.headers.get("x-ratelimit-requests-limit")
-    print(f"  API requests remaining: {remaining}/{limit}")
-    if remaining and int(remaining) < 100:
-        raise Exception("⚠️ API request limit almost reached — stopping!")
-    time.sleep(0.5)
+    with api_semaphore:
+        response = requests.get(url, headers=HEADERS, params=params)
+        response.raise_for_status()
+        with requests_lock:
+            requests_made += 1
+        remaining = response.headers.get("x-ratelimit-requests-remaining")
+        limit = response.headers.get("x-ratelimit-requests-limit")
+        print(f"  API requests remaining: {remaining}/{limit}")
+        if remaining and int(remaining) < 100:
+            raise Exception("⚠️ API request limit almost reached — stopping!")
+        time.sleep(0.5)
     return response.json()
-
-
-def get_player_ids() -> list:
-    """Get all unique player IDs from raw_players."""
-    result = spark.sql("""
-        SELECT DISTINCT player_id
-        FROM efua_data_platform.football_raw.raw_players
-        ORDER BY player_id
-    """).collect()
-    return [row[0] for row in result]
 
 
 def _parse_date(val: str):
@@ -148,8 +155,7 @@ def _parse_date(val: str):
 
 
 def _parse_ts(val: str):
-    """Parse timestamp string to datetime object.
-    Returns None on failure."""
+    """Parse timestamp string to datetime object. Returns None on failure."""
     if not val:
         return None
     try:
@@ -174,7 +180,7 @@ def flatten_transfer(
         "team_in_name": team_in.get("name"),
         "team_out_id": team_out.get("id"),
         "team_out_name": team_out.get("name"),
-        "last_updated": _parse_ts(last_updated),  # ← TimestampType ✅
+        "last_updated": _parse_ts(last_updated),
         "ingested_at": datetime.now(tz=timezone.utc),
     }
 
@@ -203,22 +209,22 @@ def update_metadata(
 
 
 def get_existing_transfer_combos() -> set:
-    """Load all existing (player_id, transfer_date, team_in_id) combos
-    from raw_transfers once upfront to avoid repeated full-table scans
-    during the player loop."""
+    """Load existing (player_id, transfer_date, team_in_id) combos from
+    the last 24 months. Transfers older than that are already persisted
+    and will never be re-inserted, so loading them into memory is waste."""
     return {
         (row[0], str(row[1]), row[2])
         for row in spark.sql("""
             SELECT player_id, transfer_date, team_in_id
             FROM efua_data_platform.football_raw.raw_transfers
             WHERE transfer_date IS NOT NULL
+              AND transfer_date >= add_months(current_date(), -24)
         """).collect()
     }
 
 
 def write_transfers(transfers: list) -> None:
-    """Write pre-deduped transfers to raw_transfers in a single Spark job.
-    Dedup is applied in the main loop before calling this."""
+    """Write pre-deduped transfers to raw_transfers in a single Spark job."""
     if not transfers:
         return
     schema = StructType(
@@ -276,22 +282,32 @@ def log_success_players_bulk(success_records: list):
     """)
 
 
+def fetch_player(player_id: int) -> tuple:
+    """Fetch transfers for a single player. Returns (player_id, records, started_at).
+    Designed to run inside a ThreadPoolExecutor worker."""
+    started_at = datetime.now(tz=timezone.utc)
+    response = fetch_from_api(ENDPOINT, params={"player": player_id})
+    records = response.get("response", [])
+    return player_id, records, started_at
+
+
+def flush(pending_transfers, success_records, skipped_to_log):
+    """Write pending transfers and metadata to Delta, then clear the lists."""
+    write_transfers(pending_transfers)
+    log_success_players_bulk(success_records)
+    log_skipped_players_bulk(skipped_to_log)
+    pending_transfers.clear()
+    success_records.clear()
+    skipped_to_log.clear()
+
+
 def main():
-    global requests_made
     print("🔄 Fetching transfers...")
 
-    player_ids = get_player_ids()
-    active_ids = get_active_player_ids()
+    player_ids = get_players_to_fetch()
     in_window = is_transfer_window()
     players_to_skip = get_players_to_skip(in_window)
-    # Loaded lazily on first real API call — skipped entirely when almost
-    # all players are within threshold (typical outside transfer window)
-    existing_combos = None
-
-    print(f"  Total players: {len(player_ids)}")
-    print(f"  Active players: {len(active_ids)}")
-    print(f"  Transfer window active: {in_window}")
-    print(f"  Players to skip (recently fetched): {len(players_to_skip)}")
+    existing_combos = get_existing_transfer_combos()
 
     already_logged = {
         row[0]
@@ -303,87 +319,87 @@ def main():
         """).collect()
     }
 
+    players_to_fetch = [pid for pid in player_ids if pid not in players_to_skip]
+    skipped_recent_count = len(player_ids) - len(players_to_fetch)
+
+    print(f"  Active players: {len(player_ids)}")
+    print(f"  Transfer window active: {in_window}")
+    print(f"  Skipped (recently fetched): {skipped_recent_count}")
+    print(f"  To fetch: {len(players_to_fetch)}")
+
     skipped_to_log = []
     pending_transfers = []
-    success_records = []  # (player_id, rows_inserted, started_at)
+    success_records = []
+    combos_lock = threading.Lock()
 
-    current_entity_id = None
-    started_at = None
     try:
-        for player_id in player_ids:
-            requests_made = 0
+        with ThreadPoolExecutor(max_workers=API_CONCURRENCY) as executor:
+            futures = {
+                executor.submit(fetch_player, pid): pid for pid in players_to_fetch
+            }
+            completed = 0
+            for future in as_completed(futures):
+                player_id = futures[future]
+                completed += 1
+                try:
+                    pid, records, started_at = future.result()
 
-            # ── skip players with no match activity ──
-            # log once only to avoid bloating metadata
-            if player_id not in active_ids:
-                if player_id not in already_logged:
-                    skipped_to_log.append(player_id)
-                continue
+                    if not records:
+                        if pid not in already_logged:
+                            skipped_to_log.append(pid)
+                        continue
 
-            # ── skip recently fetched players ──
-            if player_id in players_to_skip:
-                print(f"  Player {player_id} recently checked — skipping")
-                continue
+                    all_transfers = []
+                    for record in records:
+                        p_id = record.get("player", {}).get("id")
+                        p_name = record.get("player", {}).get("name")
+                        last_updated = record.get("update")
+                        for transfer in record.get("transfers", []):
+                            all_transfers.append(
+                                flatten_transfer(p_id, p_name, last_updated, transfer)
+                            )
 
-            # Load existing combos on first real API call
-            if existing_combos is None:
-                print("  Loading existing transfer combos...")
-                existing_combos = get_existing_transfer_combos()
+                    with combos_lock:
+                        new_transfers = [
+                            t
+                            for t in all_transfers
+                            if (
+                                t["player_id"],
+                                str(t["transfer_date"]),
+                                t["team_in_id"],
+                            )
+                            not in existing_combos
+                        ]
+                        for t in new_transfers:
+                            existing_combos.add(
+                                (
+                                    t["player_id"],
+                                    str(t["transfer_date"]),
+                                    t["team_in_id"],
+                                )
+                            )
 
-            started_at = datetime.now(tz=timezone.utc)
-            current_entity_id = player_id
-            response = fetch_from_api(ENDPOINT, params={"player": player_id})
-            records = response.get("response", [])
-
-            if not records:
-                print(f"  No transfers for player {player_id} — logging as skipped")
-                skipped_to_log.append(player_id)
-                continue
-
-            all_transfers = []
-            for record in records:
-                pid = record.get("player", {}).get("id")
-                pname = record.get("player", {}).get("name")
-                last_updated = record.get("update")
-                for transfer in record.get("transfers", []):
-                    all_transfers.append(
-                        flatten_transfer(pid, pname, last_updated, transfer)
+                    pending_transfers.extend(new_transfers)
+                    success_records.append((pid, len(new_transfers), started_at))
+                    print(
+                        f"  Player {pid}: ✅ {len(new_transfers)} new transfers queued"
                     )
 
-            # dedup in memory — update existing_combos immediately so
-            # subsequent players in the loop don't produce duplicates
-            new_transfers = [
-                t
-                for t in all_transfers
-                if (t["player_id"], str(t["transfer_date"]), t["team_in_id"])
-                not in existing_combos
-            ]
-            for t in new_transfers:
-                existing_combos.add(
-                    (t["player_id"], str(t["transfer_date"]), t["team_in_id"])
-                )
+                except Exception as e:
+                    print(f"  ⚠️ Player {player_id} failed: {e}")
+                    skipped_to_log.append(player_id)
 
-            pending_transfers.extend(new_transfers)
-            success_records.append((player_id, len(new_transfers), started_at))
-            print(f"  Player {player_id}: ✅ {len(new_transfers)} new transfers queued")
+                # Flush every FLUSH_EVERY players to bound memory and preserve progress
+                if completed % FLUSH_EVERY == 0:
+                    flush(pending_transfers, success_records, skipped_to_log)
+                    print(f"  Flushed at {completed}/{len(players_to_fetch)} players")
 
-        if not in_window and existing_combos is None:
-            print("  No players needed fetching outside transfer window — done early.")
-
-        # single Spark write for all players — replaces one write per player
-        write_transfers(pending_transfers)
-        print(f"  Written {len(pending_transfers)} total new transfers")
-
-        log_success_players_bulk(success_records)
-        log_skipped_players_bulk(skipped_to_log)
-        print(f"  Logged {len(success_records)} fetched, {len(skipped_to_log)} skipped")
+        # Final flush for remainder
+        flush(pending_transfers, success_records, skipped_to_log)
         print("\n🎉 Transfers ingestion complete!")
 
     except Exception as e:
-        log_skipped_players_bulk(skipped_to_log)
-        log_success_players_bulk(success_records)
-        if current_entity_id:
-            update_metadata(ENDPOINT, 0, "failed", current_entity_id, started_at)
+        flush(pending_transfers, success_records, skipped_to_log)
         print(f"❌ Error: {e}")
         raise
 
