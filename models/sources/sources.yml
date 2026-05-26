@@ -490,3 +490,21 @@ sources:
           - name: last_updated
           - name: ingested_at
             data_tests: [not_null]
+
+      - name: ingestion_metadata
+        description: >
+          Per-run ingestion audit log written by Python fetch scripts. One row per
+          endpoint / entity attempt with status, row counts, API requests, and timestamps.
+        config:
+          freshness: null
+        columns:
+          - name: endpoint
+            data_tests: [not_null]
+          - name: entity_id
+          - name: last_ingested_at
+          - name: rows_inserted
+          - name: requests_used
+          - name: status
+            data_tests: [not_null]
+          - name: created_at
+          - name: started_at

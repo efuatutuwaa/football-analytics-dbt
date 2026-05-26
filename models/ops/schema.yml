@@ -1,0 +1,84 @@
+version: 2
+
+models:
+  - name: mart_api_usage
+    description: >
+      Daily and monthly API request consumption aggregated from
+      ingestion_metadata. Use this to monitor remaining quota against
+      the API-Football plan limit (e.g. 100 requests/day on the free
+      tier, or the contracted limit on a paid plan).
+    columns:
+      - name: run_date
+        description: Calendar date of the ingestion runs (UTC).
+        data_tests:
+          - not_null
+      - name: endpoint
+        description: API endpoint name (e.g. fixtures, players_2024).
+        data_tests:
+          - not_null
+      - name: total_requests
+        description: Total API requests made for this endpoint on this date.
+        data_tests:
+          - not_null
+      - name: total_rows_inserted
+        description: Total rows written to raw tables on this date.
+      - name: successful_runs
+        description: Count of rows with status = 'success'.
+      - name: failed_runs
+        description: Count of rows with status = 'failed'.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - run_date
+            - endpoint
+
+  - name: mart_pipeline_health
+    description: >
+      Per-run summary of ingestion outcomes with runtime in minutes,
+      derived from started_at and last_ingested_at columns in
+      ingestion_metadata. Use this to detect slow or failing runs and
+      estimate compute costs.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - endpoint
+            - entity_id
+            - run_started_at
+    columns:
+      - name: run_date
+        description: Calendar date of the run (UTC).
+        data_tests:
+          - not_null
+      - name: endpoint
+        description: API endpoint name.
+        data_tests:
+          - not_null
+      - name: entity_id
+        description: League ID, team ID, or player ID the run targeted.
+      - name: status
+        description: >
+          Outcome of the run. Fetch scripts write success (data loaded),
+          failed (exception), or skipped (incremental guard / bulk no-data log).
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['success', 'failed', 'skipped']
+      - name: rows_inserted
+        description: Number of rows written in this run.
+      - name: requests_used
+        description: Number of API requests consumed in this run.
+      - name: started_at
+        description: >
+          UTC timestamp when the script began processing this entity.
+          Null on some bulk skipped rows (fixture children with no API data).
+      - name: run_started_at
+        description: >
+          Grain timestamp — coalesce(started_at, last_ingested_at, created_at).
+        data_tests:
+          - not_null
+      - name: completed_at
+        description: UTC timestamp when the metadata row was written (last_ingested_at).
+      - name: runtime_minutes
+        description: >
+          Elapsed time in minutes between started_at and completed_at.
+          Null when started_at is not available (pre-migration runs).
