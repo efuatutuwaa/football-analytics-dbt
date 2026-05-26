@@ -1,0 +1,149 @@
+# Thin MetricFlow slice — demo metrics (unique measure names per semantic model).
+
+metrics:
+  - name: club_goals_scored
+    label: Club goals scored
+    description: Sum of goals_scored from mart_club_season.
+    type: simple
+    type_params:
+      measure: goals_scored
+
+  - name: club_league_points
+    label: Club league points
+    description: Sum of league_points (3-1-0) from mart_club_season.
+    type: simple
+    type_params:
+      measure: league_points
+
+  - name: player_goals
+    label: Player goals
+    description: Sum of goals from mart_player_season.
+    type: simple
+    type_params:
+      measure: goals
+
+  - name: player_assists
+    label: Player assists
+    description: Sum of assists from mart_player_season.
+    type: simple
+    type_params:
+      measure: assists
+
+  - name: player_appearances
+    label: Player appearances
+    description: Sum of appearances from mart_player_season.
+    type: simple
+    type_params:
+      measure: appearances
+
+  - name: player_minutes_played
+    label: Player minutes played
+    description: Sum of minutes_played from mart_player_season.
+    type: simple
+    type_params:
+      measure: minutes_played
+
+  - name: player_starts
+    label: Player starts
+    description: Sum of total_starts from mart_player_season.
+    type: simple
+    type_params:
+      measure: total_starts
+
+  - name: player_shots
+    label: Player shots
+    description: Sum of total_shots from mart_player_season.
+    type: simple
+    type_params:
+      measure: total_shots
+
+  - name: player_shots_on_target
+    label: Player shots on target
+    description: Sum of shots_on_target from mart_player_season.
+    type: simple
+    type_params:
+      measure: shots_on_target
+
+  - name: player_avg_goals_per_90
+    label: Avg player goals per 90
+    description: Average of row-level goals_per_90 from mart_player_season.
+    type: simple
+    type_params:
+      measure: avg_goals_per_90
+
+  - name: player_avg_match_rating
+    label: Avg player match rating
+    description: Average of row-level avg_rating from mart_player_season.
+    type: simple
+    type_params:
+      measure: avg_rating
+
+  - name: fee_transfers
+    label: Fee-bearing transfers
+    description: Count of permanent fee moves from mart_transfer_window.
+    type: simple
+    type_params:
+      measure: fee_transfer_count
+
+  - name: total_signing_fee_eur
+    label: Total signing fee (EUR)
+    description: Sum of parsed transfer fees from mart_player_value_changes.
+    type: simple
+    type_params:
+      measure: signing_fee_eur
+
+  - name: total_fee_change_eur
+    label: Total fee change (EUR)
+    description: Sum of fee delta vs prior move from mart_player_value_changes.
+    type: simple
+    type_params:
+      measure: fee_change_eur
+
+  - name: national_tournament_wins
+    label: National team tournament wins
+    description: Sum of Winner flags from mart_national_team_honours.
+    type: simple
+    type_params:
+      measure: national_tournament_wins
+
+  - name: national_podium_finishes
+    label: National team podium finishes
+    description: Count of WC/Euros podium rows from mart_national_team_honours.
+    type: simple
+    type_params:
+      measure: national_podium_finishes
+
+  - name: club_total_trophies
+    label: Club trophies won
+    description: Sum of total_trophies from mart_club_honours.
+    type: simple
+    type_params:
+      measure: club_total_trophies
+
+  - name: club_league_titles_won
+    label: Club league titles
+    description: Sum of league_titles_won from mart_club_honours.
+    type: simple
+    type_params:
+      measure: club_league_titles
+
+  - name: european_club_goals
+    label: European club goals scored
+    description: Sum of goals_scored from mart_club_european_performance.
+    type: simple
+    type_params:
+      measure: european_goals_scored
+
+  - name: european_tournament_wins
+    label: European tournament wins
+    description: Count of UCL/CWC titles from mart_club_european_performance.
+    type: simple
+    type_params:
+      measure: european_tournament_wins
+
+  - name: european_campaigns
+    label: European club campaigns
+    description: Count of club tournament campaigns from mart_club_european_performance.
+    type: simple
+    type_params:
+      measure: european_campaigns

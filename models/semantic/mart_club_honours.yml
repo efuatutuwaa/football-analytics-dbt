@@ -1,0 +1,46 @@
+semantic_models:
+  - name: club_honours
+    description: Club trophy counts per season (league, domestic cups, European).
+    model: ref('mart_club_honours')
+    defaults:
+      agg_time_dimension: honour_season
+    entities:
+      - name: honoured_club
+        type: primary
+        expr: team_id
+    dimensions:
+      - name: honour_season
+        type: time
+        type_params:
+          time_granularity: year
+        expr: make_date(cast(league_season as int), 1, 1)
+        label: Season
+      - name: honoured_club_name
+        type: categorical
+        expr: team_name
+        label: Club
+      - name: honour_label
+        type: categorical
+        expr: honour_label
+        label: Honour label
+    measures:
+      - name: club_total_trophies
+        agg: sum
+        expr: total_trophies
+        label: Total trophies
+      - name: club_league_titles
+        agg: sum
+        expr: league_titles_won
+        label: League titles
+      - name: club_domestic_cups
+        agg: sum
+        expr: domestic_cups_won
+        label: Domestic cups won
+      - name: club_european_trophies
+        agg: sum
+        expr: european_trophies_won
+        label: European trophies
+      - name: club_honour_seasons
+        agg: count
+        expr: team_id
+        label: Honour seasons

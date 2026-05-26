@@ -1,0 +1,49 @@
+semantic_models:
+  - name: player_value_changes
+    description: Fee-bearing moves with EUR parsing and delta vs the player's prior fee move.
+    model: ref('mart_player_value_changes')
+    defaults:
+      agg_time_dimension: fee_move_date
+    entities:
+      - name: fee_player
+        type: primary
+        expr: player_id
+      - name: fee_destination_club
+        type: foreign
+        expr: team_id
+    dimensions:
+      - name: fee_move_date
+        type: time
+        type_params:
+          time_granularity: day
+        expr: transfer_date
+        label: Transfer date
+      - name: fee_move_window
+        type: categorical
+        expr: transfer_window
+        label: Window
+      - name: fee_player_name
+        type: categorical
+        expr: player_name
+        label: Player
+      - name: fee_destination_name
+        type: categorical
+        expr: team_name
+        label: Destination club
+      - name: fee_increase_flag
+        type: categorical
+        expr: cast(is_fee_increase as string)
+        label: Fee increased vs prior move
+    measures:
+      - name: signing_fee_eur
+        agg: sum
+        expr: transfer_fee_eur
+        label: Signing fee (EUR)
+      - name: fee_change_eur
+        agg: sum
+        expr: fee_change_eur
+        label: Fee change vs prior move (EUR)
+      - name: value_change_moves
+        agg: count
+        expr: player_id
+        label: Fee moves
