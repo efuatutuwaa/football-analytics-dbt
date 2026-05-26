@@ -1,0 +1,190 @@
+version: 2
+
+# Short summaries + tests. Full spec: each mart_*.sql header. Shared SQL idioms (GROUP BY, row_number, etc.): README.md.
+
+models:
+  - name: mart_club_domestic_cup_performance
+    description: >
+      Club domestic cup campaign per season. See mart_club_domestic_cup_performance.sql header for
+      W/D/L rules, farthest_round vs was_cup_winner, and competition league_ids.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - team_id
+            - league_id
+            - league_season
+
+  - name: mart_club_european_performance
+    description: >
+      Club UCL / Club World Cup campaign per season. farthest_round uses UEFA-style labels
+      (API Round of 32 → Knockout round play-offs). See models/marts/README.md § UCL round labels.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - team_id
+            - league_id
+            - league_season
+
+  - name: mart_national_team_results
+    description: >
+      Full WC/Euros edition summary per nation including tournament_placement. See SQL header for
+      placement CASE rules and difference vs honours / round marts.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - team_id
+            - league_id
+            - league_season
+
+  - name: mart_national_team_honours
+    description: >
+      Podium filter (Winner, Runner-up, Semi-finalist) over mart_national_team_results. See SQL header.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - team_id
+            - league_id
+            - league_season
+
+  - name: mart_club_honours
+    description: >
+      Trophy counts and honour_label per club-season. See SQL header for treble/quadruple definitions.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - team_id
+            - league_season
+
+  - name: mart_world_cup
+    description: >
+      World Cup round-by-round aggregates (league_id = 1). See SQL header for is_eliminated_in_round semantics.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - team_id
+            - league_season
+            - league_round
+
+  - name: mart_continental_cups
+    description: >
+      Continental tournament round aggregates; v1 Euros (league_id = 4). See SQL header for v2 extension.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - team_id
+            - league_id
+            - league_season
+            - league_round
+
+  - name: mart_club_season
+    description: >
+      Domestic league season per club with derived points and rates. See mart_club_season.sql header.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - team_id
+            - league_id
+            - league_season
+
+  - name: mart_player_season
+    description: >
+      Player season per club with per-90 and rate columns. See mart_player_season.sql header.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - player_id
+            - team_id
+            - league_id
+            - league_season
+
+  - name: mart_player_matchday
+    description: >
+      Player match log with rolling last-5 form (domestic leagues). See mart_player_matchday.sql header.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - fixture_id
+            - player_id
+
+  - name: mart_player_valuation
+    description: >
+      Player-season transfer-fee valuation proxy. See mart_player_valuation.sql header for v1 limits vs market value SCD.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - player_id
+            - team_id
+            - league_id
+            - league_season
+
+  - name: mart_player_value_changes
+    description: >
+      Fee change vs prior transfer per player (lag). See mart_player_value_changes.sql header.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - player_id
+            - team_id
+            - transfer_date
+
+  - name: mart_transfer_window
+    description: >
+      Fee-bearing permanent transfers with calendar attributes. See mart_transfer_window.sql header.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - player_id
+            - team_id
+            - transfer_date
+
+  - name: mart_league_standings
+    description: >
+      Domestic league table snapshot (big five). See mart_league_standings.sql header.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - league_id
+            - league_season
+            - team_id
+            - group_name
+
+  - name: mart_club_matchday
+    description: >
+      Finished domestic league match rows with rolling last-5 form. See mart_club_matchday.sql header.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - fixture_id
+            - team_id
+
+  - name: mart_club_squad_value
+    description: >
+      Club-season squad transfer-fee estimates from mart_player_season + fact_player_market_value_period.
+      See mart_club_squad_value.sql header for inbound vs global fallback and fee parsing.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - team_id
+            - league_id
+            - league_season
+
+  - name: mart_league_week
+    description: >
+      Domestic league matchweek aggregates from fact_fixture. See mart_league_week.sql header.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - league_id
+            - league_season
+            - league_round
+
+  - name: mart_domestic_league_top_scorers
+    description: >
+      Big-five domestic league goal/assist leaderboards (dense_rank). See mart_domestic_league_top_scorers.sql header.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - player_id
+            - team_id
+            - league_id
+            - league_season
