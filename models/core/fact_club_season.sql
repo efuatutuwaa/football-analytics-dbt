@@ -20,12 +20,11 @@
 --   Cup or international fixtures in int_club_matchday_metrics — filtered out via int_club_league_periods
 -- Design notes:
 --   Thin exposure layer: aggregation and league-only filter live in intermediate.
---   matches_played counts rows in int_club_matchday_metrics after the league_periods join;
---   unfinished fixtures still appear in matchday metrics but match_result is null and do not
---   increment wins/draws/losses. Re-run int_club_matchday_metrics + int_club_season_metrics
---   after ingest to refresh season totals.
+--   matches_played counts finished league fixtures only (match_result not null in int_club_season_metrics).
+--   Scheduled/postponed rows stay in int_club_matchday_metrics but are excluded from season totals.
+--   Re-run int_club_matchday_metrics + int_club_season_metrics after ingest to refresh season totals.
 -- Consumers (consumption layer):
---   mart_club_season (planned), season-on-season analysis, double/treble with cup/intl marts
+--   mart_club_season, season-on-season analysis, double/treble with cup/intl marts
 
 {{ config(materialized='table') }}
 

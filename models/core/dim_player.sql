@@ -30,7 +30,7 @@
 --   Current club or squad — use stg_team_squads or int_player_club_periods (intermediate); marts join dim_club
 --   Per-match stats — use fact_player_match_stats (not int_player_match_stats from consumption layer)
 --   Season performance — use fact_player_season (aggregated via int_player_season_metrics in intermediate)
---   Transfer history — int_transfers (intermediate); fee-bearing permanents — fact_player_market_value_period
+--   Club stints — fact_player_club_period; fee-bearing permanents — fact_player_market_value_period
 --   Event-level rows — use fact_fixture_events (player_id optional on some events)
 -- Design notes:
 --   Sourced from staging only — not built from int_player_match_stats or int_player_season_metrics.
@@ -41,7 +41,7 @@
 --   nationality is not joined to stg_countries in this dimension; add country_code via left join
 --   on nationality = country_name if flag enrichment is needed (same pattern as dim_club).
 -- Join targets (consumption layer — do not join int_* for player attributes):
---   fact_player_match_stats, fact_player_season, fact_fixture_events, fact_player_market_value_period
+--   fact_player_match_stats, fact_player_season, fact_player_club_period, fact_fixture_events, fact_player_market_value_period
 --   Join dim_club on team_id from those facts when club context is required alongside player attributes.
 
 {{ config(materialized='table') }}

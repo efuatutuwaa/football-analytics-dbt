@@ -26,7 +26,7 @@
 --   Used as left-join context on int_club_intl_runs / int_national_team_runs at intermediate only;
 --   consumption layer should use this fact for table views, not int_standings.
 -- Consumers (consumption layer):
---   League table marts, Streamlit standings page, promotion/relegation analysis
+--   mart_league_standings, Streamlit standings page, promotion/relegation analysis
 
 {{ config(materialized='table') }}
 

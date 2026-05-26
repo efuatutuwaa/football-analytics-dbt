@@ -33,7 +33,7 @@
 --   Coverage flags describe what the API supports for that league-season, not what was ingested.
 -- Consumers (consumption layer):
 --   fact_fixture_events, fact_club_match_stats, fact_player_match_stats (join on fixture_id),
---   marts, Streamlit match explorer
+--   mart_league_week, marts, Streamlit match explorer
 
 {{ config(materialized='table') }}
 

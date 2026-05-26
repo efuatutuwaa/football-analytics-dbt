@@ -17,7 +17,7 @@
 --   fixture_id, league_id, team_id, team_name, team_code, team_country
 --   opponent_team_id, opponent_team_name, is_home, is_winner
 --   league_name, league_country, league_season, season_start_date, season_end_date, is_current_season
---   league_round, round_order, is_farthest_round
+--   league_round (API raw), league_round_display (UEFA-style), round_order, is_farthest_round
 --   match_date, match_timestamp, match_status_short, match_status_long, match_referee, timezone
 --   goals_scored, goals_conceded, team_halftime_score, opponent_halftime_score
 --   team_extratime_score, opponent_extratime_score, team_penalty_score, opponent_penalty_score
@@ -65,6 +65,7 @@ select
     season_end_date,
     is_current_season,
     league_round,
+    league_round_display,
     round_order,
     is_farthest_round,
     -- match timing and status

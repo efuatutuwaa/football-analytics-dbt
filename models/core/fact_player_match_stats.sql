@@ -29,7 +29,7 @@
 --   rating is double (try_cast in stg_player_statistics; API '-' sentinel becomes null).
 --   Deduped in intermediate to latest ingested_at per fixture_id + player_id.
 -- Consumers (consumption layer):
---   fact_player_season, player ranking marts, Streamlit player explorer
+--   mart_player_matchday, mart_player_season, Streamlit player explorer
 -- Build path (intermediate only): int_player_season_metrics aggregates int_player_match_stats, then this fact.
 
 {{ config(materialized='table') }}
