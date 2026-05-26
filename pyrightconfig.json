@@ -1,0 +1,5 @@
+{
+  "venvPath": "app",
+  "venv": "app-env",
+  "extraPaths": ["app"]
+}
