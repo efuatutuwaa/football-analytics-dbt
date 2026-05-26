@@ -240,4 +240,6 @@ snapshots/**
 
 # secrets
 scripts/config.py
-docs/.DS_Store
+
+# macOS
+.DS_Store
