@@ -466,12 +466,32 @@ models:
             - fixture_id
             - player_id
 
+  - name: fact_player_club_period
+    description: >
+      One row per player club stint from transfer history. Passthrough of int_player_club_periods.
+      Use for which club on a date — not scd_player_club (squad audit). See ADR 011.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - player_id
+            - team_id
+            - period_start_date
+    columns:
+      - name: player_id
+        tests:
+          - not_null
+      - name: team_id
+        tests:
+          - not_null
+      - name: period_start_date
+        tests:
+          - not_null
+
   - name: fact_player_market_value_period
     description: >
       One row per fee-bearing permanent transfer. Passthrough of int_player_market_value_periods.
       transfer_fee is the raw API string (e.g. € 75M). Join dim_player and dim_club on destination team_id.
-      Full transfer history and club stints have no core fact yet — intermediate int_transfers /
-      int_player_club_periods only. Relationship tests to dims use severity warn.
+      All transfer types and club stints — fact_player_club_period. Relationship tests use severity warn.
     columns:
       - name: player_id
         description: Identifier for the player.

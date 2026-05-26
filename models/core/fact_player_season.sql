@@ -23,7 +23,7 @@
 --   avg_rating is mean of per-match rating (double; try_cast in stg_player_statistics handles the
 --   API '-' sentinel, which becomes null and is excluded from avg()).
 -- Consumers (consumption layer):
---   mart_player_season (planned), top scorers, season-on-season player comparisons
+--   mart_player_season, mart_domestic_league_top_scorers, season-on-season player comparisons
 
 {{ config(materialized='table') }}
 

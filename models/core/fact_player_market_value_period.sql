@@ -20,7 +20,7 @@
 --   transfer_fee is not parsed to numeric here — marts should document currency/parsing rules.
 --   transfer_type should be permanent for all rows; loans/frees never appear in this fact.
 -- Consumers (consumption layer):
---   mart_transfer_window (planned), transfer spend analysis, Streamlit signing explorer
+--   mart_transfer_window, mart_player_valuation, mart_player_value_changes, transfer spend analysis
 
 {{ config(materialized='table') }}
 

@@ -35,7 +35,7 @@
 --   FT = full time (decided in 90 minutes + stoppage), AET = after extra time (no shootout),
 --   PEN = decided on penalty shootout (scores include shootout result where applicable).
 -- Consumers (consumption layer):
---   fact_club_season, rolling form marts, ad-hoc match analysis
+--   mart_club_matchday, mart_club_season (via int aggregates), ad-hoc match analysis
 -- Build path (intermediate only): int_club_season_metrics aggregates int_club_matchday_metrics → fact_club_season.
 
 {{ config(materialized='table') }}
