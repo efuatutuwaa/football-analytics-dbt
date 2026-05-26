@@ -14,9 +14,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-!app/lib/
-!app/lib/**
+# Python packaging (repo root only — do not use bare `lib/`; it ignores portfolio-site/src/lib/)
+/lib/
 lib64/
 parts/
 sdist/
