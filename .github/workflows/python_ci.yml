@@ -1,0 +1,36 @@
+name: Python CI
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - main
+
+jobs:
+  python-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt flake8
+
+      - name: Lint Python scripts with flake8
+        run: |
+          if find scripts/ -name "*.py" | grep -q .; then
+            flake8 scripts/ --max-line-length=120 --ignore=W503
+          else
+            echo "No Python files to lint yet — skipping"
+          fi
+
+      - name: Check Python syntax errors
+        run: |
+          find scripts/ -name "*.py" | while read file; do
+            python -m py_compile "$file"
+          done || echo "No Python files found — skipping"

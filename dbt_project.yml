@@ -1,0 +1,48 @@
+# football_analytics — dbt on Databricks
+# IDE "errors" on this file usually mean dbt parse failed elsewhere (often MetricFlow under models/semantic/).
+
+name: football_analytics
+version: 1.0.0
+profile: football_analytics
+
+require-dbt-version: [">=1.6.0", "<3.0.0"]
+
+model-paths: [models]
+analysis-paths: [analyses]
+test-paths: [tests]
+seed-paths: [seeds]
+macro-paths: [macros]
+snapshot-paths: [snapshots]
+
+clean-targets:
+  - target
+  - dbt_packages
+
+models:
+  football_analytics:
+    staging:
+      +materialized: view
+      +schema: football_staging
+    intermediate:
+      +materialized: table
+      +schema: football_intermediate
+    core:
+      +materialized: table
+      +schema: football_core
+    marts:
+      +materialized: table
+      +schema: football_marts
+    semantic:
+      +materialized: table
+      +schema: football_semantic
+    ops:
+      +materialized: table
+      +schema: football_ops
+
+semantic-models:
+  football_analytics:
+    +enabled: true
+
+snapshots:
+  football_analytics:
+    +target_schema: football_core

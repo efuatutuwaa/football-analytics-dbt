@@ -1,0 +1,45 @@
+semantic_models:
+  - name: transfer_window
+    description: Fee-bearing permanent transfers with calendar and window attributes.
+    model: ref('mart_transfer_window')
+    defaults:
+      agg_time_dimension: signing_date
+    entities:
+      - name: signing_player
+        type: primary
+        expr: player_id
+      - name: signing_destination_club
+        type: foreign
+        expr: team_id
+    dimensions:
+      - name: signing_date
+        type: time
+        type_params:
+          time_granularity: day
+        expr: transfer_date
+        label: Transfer date
+      - name: signing_year
+        type: categorical
+        expr: cast(transfer_year as string)
+        label: Transfer year
+      - name: signing_window
+        type: categorical
+        expr: transfer_window
+        label: Window
+      - name: signing_type
+        type: categorical
+        expr: transfer_type
+        label: Transfer type
+      - name: signing_player_name
+        type: categorical
+        expr: player_name
+        label: Player
+      - name: signing_club_name
+        type: categorical
+        expr: team_name
+        label: Destination club
+    measures:
+      - name: fee_transfer_count
+        agg: count
+        expr: player_id
+        label: Fee transfers

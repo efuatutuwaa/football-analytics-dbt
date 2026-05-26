@@ -1,0 +1,28 @@
+version: 2
+
+snapshots:
+  - name: scd_player_club
+    description: >
+      Type 2 snapshot of squad roster (player_id → club). Audit only; transfer stints use
+      fact_player_club_period. Run via dbt snapshot --select scd_player_club.
+    columns:
+      - name: player_id
+        description: Natural key; one current squad row per player in snapshot strategy.
+      - name: team_id
+        description: Club in squad API at snapshot time; changes trigger new SCD row.
+      - name: dbt_valid_from
+        description: When this version became valid (dbt snapshot metadata).
+      - name: dbt_valid_to
+        description: When superseded; null for current version.
+
+  - name: scd_club_league
+    description: >
+      Type 2 snapshot of domestic league participation per club per season. Analytic spine is
+      int_club_league_periods. Run via dbt snapshot --select scd_club_league.
+    columns:
+      - name: team_id
+        description: Club natural key (with season_year).
+      - name: season_year
+        description: Season year from team_seasons bridge.
+      - name: league_id
+        description: Domestic league; check_cols trigger new row on correction.

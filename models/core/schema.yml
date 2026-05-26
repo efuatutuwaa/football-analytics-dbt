@@ -1,0 +1,720 @@
+version: 2
+
+models:
+
+  # ─────────────────────────────────────────
+  # Dimensions
+  # ─────────────────────────────────────────
+
+  - name: dim_club
+    description: >
+      One row per club (team_id where is_national_team = false). Master dimension of football
+      clubs across all 15 tracked competitions. Sources: stg_teams (filtered to clubs),
+      stg_countries (left join on team_country = country_name). Materialized as table in
+      football_core for fast joins from facts and marts. National teams are excluded — use
+      dim_national_team. Sourced from staging only — not built from intermediate models.
+      Consumption layer joins this dim to fact_club_* and fact_player_* models, not int_*.
+    columns:
+      - name: team_id
+        description: Primary key; join key for all club facts and marts.
+        tests:
+          - not_null
+          - unique
+      - name: team_name
+        description: Display name (e.g. Arsenal, Real Madrid).
+        tests:
+          - not_null
+      - name: team_code
+        description: Three-letter code (e.g. ARS, RMA); may be null for some clubs.
+      - name: team_country
+        description: Country the club is based in (string from API).
+      - name: team_founded
+        description: Year founded; sourced from founded_year in stg_teams.
+      - name: team_logo_url
+        description: Logo image URL for dashboards.
+      - name: country_code
+        description: ISO code from stg_countries when team_country matches country_name.
+      - name: country_flag_url
+        description: Flag URL from stg_countries when join succeeds.
+      - name: ingested_at
+        description: Last ingest timestamp from stg_teams.
+        tests:
+          - not_null
+
+  - name: dim_national_team
+    description: >
+      One row per national team (team_id where is_national_team = true). Master dimension for
+      FIFA World Cup (1) and UEFA European Championship (4) coverage. Sources: stg_teams
+      (filtered to national teams), stg_countries (left join on team_country = country_name).
+      Materialized as table in football_core. Club teams are excluded — use dim_club.
+      Join fact_national_team_run and fact_fixture — not int_national_team_runs from consumption layer.
+    columns:
+      - name: team_id
+        description: Primary key; join key for fact_national_team_run and related marts.
+        tests:
+          - not_null
+          - unique
+      - name: team_name
+        description: Display name of the national team (e.g. Senegal, Netherlands).
+        tests:
+          - not_null
+      - name: team_code
+        description: Short code for the national team.
+      - name: team_country
+        description: Country the national team represents.
+      - name: team_logo_url
+        description: Logo image URL for dashboards.
+      - name: country_code
+        description: ISO code from stg_countries when team_country matches country_name.
+      - name: country_flag_url
+        description: Flag URL from stg_countries when join succeeds.
+      - name: ingested_at
+        description: Last ingest timestamp from stg_teams.
+        tests:
+          - not_null
+
+  - name: dim_league
+    description: >
+      One row per competition (league_id). Master dimension of all 15 tracked competitions
+      (domestic leagues, domestic cups, UEFA Champions League, Club World Cup, World Cup, Euros).
+      Sources: stg_leagues, filtered to league_ids in scripts/ingestion/constants.py.
+      Materialized as table in football_core for fast joins from facts and marts.
+      Consumption layer uses fact_fixture, fact_standings, and competition-specific facts — not int_*.
+    columns:
+      - name: league_id
+        description: Primary key; join key for all competition-scoped facts and marts.
+        tests:
+          - not_null
+          - unique
+          - accepted_values:
+              values: [1, 2, 4, 15, 39, 45, 48, 61, 66, 78, 81, 135, 137, 140, 143]
+      - name: league_name
+        description: Display name (e.g. Premier League, UEFA Champions League).
+        tests:
+          - not_null
+      - name: league_type
+        description: Competition format — league, cup, or tournament (lowercased at staging).
+        tests:
+          - accepted_values:
+              values: ['league', 'cup', 'tournament']
+      - name: league_country_name
+        description: Country the competition is based in; null for some international tournaments.
+      - name: league_country_code
+        description: ISO country code from API.
+      - name: league_country_flag_url
+        description: Flag image URL from API.
+      - name: league_logo_url
+        description: Competition logo URL for dashboards.
+      - name: ingested_at
+        description: Last ingest timestamp from stg_leagues.
+        tests:
+          - not_null
+
+  - name: dim_player
+    description: >
+      One row per player (player_id). Master dimension for players appearing in ingested
+      league-seasons across the 15 tracked competitions. Sources: stg_players only — not built
+      from int_player_* models (siblings in the DAG). Join from fact_player_match_stats,
+      fact_player_season, fact_fixture_events, and fact_player_market_value_period on player_id.
+    columns:
+      - name: player_id
+        description: Primary key; join key for player facts and marts.
+        tests:
+          - not_null
+          - unique
+      - name: player_name
+        description: Full display name from API.
+        tests:
+          - not_null
+      - name: firstname
+        description: Given name; may be null.
+      - name: lastname
+        description: Family name; may be null.
+      - name: age
+        description: Age at time of API fetch; snapshot only — prefer birth_date for stable logic.
+      - name: birth_date
+        description: Date of birth.
+      - name: birth_place
+        description: Place of birth string from API.
+      - name: birth_country
+        description: Country of birth.
+      - name: nationality
+        description: Nationality string from API.
+      - name: height
+        description: Height as returned by API (e.g. "180 cm"); string, not numeric.
+      - name: weight
+        description: Weight as returned by API (e.g. "75 kg"); string, not numeric.
+      - name: photo_url
+        description: Headshot image URL for dashboards.
+      - name: ingested_at
+        description: Last ingest timestamp from stg_players.
+        tests:
+          - not_null
+
+  - name: dim_venue
+    description: >
+      One row per stadium or ground (venue_id). Sources: stg_venues (latest row per venue_id).
+      Join from fact_fixture on venue_id for capacity, surface, and address beyond inline fixture fields.
+      Not a downstream consumer of int_fixture_spine — enrichment at query time in marts and BI.
+    columns:
+      - name: venue_id
+        description: Primary key; join key from fact_fixture and match-level models.
+        tests:
+          - not_null
+          - unique
+      - name: venue_name
+        description: Display name of the stadium or ground.
+        tests:
+          - not_null
+      - name: venue_city
+        description: City where the venue is located.
+      - name: venue_address
+        description: Street address from API; may be null.
+      - name: venue_capacity
+        description: Stated capacity; may be null.
+      - name: venue_surface
+        description: Playing surface (e.g. grass, artificial turf); may be null.
+      - name: venue_image_url
+        description: Stadium image URL for dashboards.
+      - name: ingested_at
+        description: Last ingest timestamp from stg_venues.
+        tests:
+          - not_null
+
+  # ─────────────────────────────────────────
+  # Facts
+  # ─────────────────────────────────────────
+
+  - name: fact_fixture
+    description: >
+      One row per fixture. Passthrough of int_fixture_spine — competition, season, teams, venue,
+      scores, match status, and league-season coverage flags. Join dim_league, dim_club, dim_venue
+      in marts; do not join int_fixture_spine from the consumption layer.
+    columns:
+      - name: fixture_id
+        description: Primary key for the match.
+        tests:
+          - not_null
+          - unique
+      - name: league_id
+        description: Competition the fixture belongs to.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_league')
+              field: league_id
+      - name: league_season
+        description: Season year.
+        tests:
+          - not_null
+      - name: match_date
+        description: Calendar date of the match.
+        tests:
+          - not_null
+      - name: match_status_short
+        description: Short status (FT, NS, LIVE, AET, PEN, etc.).
+      - name: home_team_id
+        description: Home team identifier.
+        tests:
+          - not_null
+      - name: away_team_id
+        description: Away team identifier.
+        tests:
+          - not_null
+      - name: fulltime_home_team_score
+        description: Home goals at full time; null before result is known.
+      - name: fulltime_away_team_score
+        description: Away goals at full time; null before result is known.
+
+  - name: fact_fixture_events
+    description: >
+      One row per in-match event. Passthrough of int_fixture_events with classification flags
+      (goals, cards, subs, VAR). Join fact_fixture on fixture_id for competition context; dim_player
+      is optional on player_id. See int_fixture_events model comment for API quirks (subs, missed pens).
+      Unique test includes extra_minutes (mostly null) — matches int grain; run dbt test to confirm
+      Databricks treats nulls consistently in the uniqueness check (GROUP BY groups nulls together).
+    columns:
+      - name: fixture_id
+        description: Identifier for the fixture.
+        tests:
+          - not_null
+      - name: team_id
+        description: Team the event is attributed to.
+        tests:
+          - not_null
+      - name: player_id
+        description: Primary player on the event; null on some VAR rows.
+      - name: event_type
+        description: Event category (goal, card, subst, var) — lowercased at staging.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['goal', 'card', 'subst', 'var']
+      - name: event_detail
+        description: Lowercased API detail (e.g. normal goal, yellow card, missed penalty).
+      - name: elapsed_minutes
+        description: Match minute when the event occurred.
+        tests:
+          - not_null
+      - name: extra_minutes
+        description: Stoppage-time minute when applicable; null on most events. Part of grain unique key.
+      - name: is_goal
+        description: True if the event counts as a goal (excludes missed penalty).
+      - name: is_own_goal
+        description: True if the goal was an own goal.
+      - name: is_penalty_goal
+        description: True if the goal was scored from the penalty spot.
+      - name: is_missed_penalty
+        description: True if event_type is goal and detail is missed penalty.
+      - name: is_yellow_card
+        description: True if the card was yellow.
+      - name: is_red_card
+        description: True if event_detail is red card (straight red only).
+      - name: is_substitution
+        description: True if the event is a substitution.
+      - name: is_var_decision
+        description: True if the event is a VAR review decision.
+      - name: is_var_goal_review
+        description: True if VAR event_detail relates to a goal decision.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - fixture_id
+            - team_id
+            - player_id
+            - event_type
+            - event_detail
+            - elapsed_minutes
+            - extra_minutes
+
+  - name: fact_standings
+    description: >
+      One row per team per league per season per group. Passthrough of int_standings — latest
+      table snapshot with win_rate and points_per_game. Not matchday history. Join dim_club and dim_league.
+    columns:
+      - name: league_id
+        description: Identifier for the league or competition.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_league')
+              field: league_id
+      - name: league_season
+        description: Season year.
+        tests:
+          - not_null
+      - name: team_id
+        description: Identifier for the team.
+        tests:
+          - not_null
+      - name: group_name
+        description: Group or division name (multi-group competitions).
+      - name: team_rank
+        description: Current league position.
+      - name: team_points
+        description: Total points accumulated.
+      - name: goals_difference
+        description: Goals scored minus goals conceded.
+      - name: win_rate
+        description: Proportion of matches won.
+      - name: points_per_game
+        description: Average points per match played.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - team_id
+            - league_id
+            - league_season
+            - group_name
+
+  - name: fact_club_match_stats
+    description: >
+      One row per club per fixture across all tracked competitions. Exposes int_club_matchday_metrics
+      with perspective-normalised scores, match_result (null until FT/AET/PEN), clean sheets, and
+      team-level fixture statistics. Join to dim_club on team_id and dim_league on league_id.
+      Filter league_id for league-only, cup, or European scope. Season totals — fact_club_season.
+      Do not join int_club_matchday_metrics from the consumption layer.
+    columns:
+      - name: fixture_id
+        description: Identifier for the fixture.
+        tests:
+          - not_null
+      - name: team_id
+        description: Identifier for the club.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_club')
+              field: team_id
+      - name: league_id
+        description: Competition the fixture belongs to.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_league')
+              field: league_id
+      - name: match_date
+        description: Calendar date of the match.
+        tests:
+          - not_null
+      - name: match_result
+        description: win, draw, or loss from this club's perspective; null if not finished.
+      - name: is_clean_sheet
+        description: True if zero goals conceded at full time; null if not finished.
+      - name: goals_scored
+        description: Goals scored by this club at full time.
+      - name: goals_conceded
+        description: Goals conceded by this club at full time.
+      - name: ball_possession
+        description: Ball possession percentage; null when fixture statistics are missing.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - fixture_id
+            - team_id
+
+  - name: fact_club_season
+    description: >
+      One row per club per domestic league per season. Passthrough of int_club_season_metrics —
+      wins, draws, losses, goals, goal difference, and clean sheets from finished league
+      fixtures only (league_ids 39, 61, 78, 135, 140). Join dim_club and dim_league in marts.
+    columns:
+      - name: team_id
+        description: Identifier for the club.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_club')
+              field: team_id
+      - name: league_id
+        description: Domestic league the totals belong to.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_league')
+              field: league_id
+      - name: league_season
+        description: Season year.
+        tests:
+          - not_null
+      - name: team_name
+        description: Display name of the club (denormalised from intermediate).
+      - name: league_name
+        description: Display name of the league.
+      - name: matches_played
+        description: League fixtures counted for this club-season (includes unfinished with null match_result).
+      - name: wins
+        description: Wins in the season (finished matches only).
+      - name: draws
+        description: Draws in the season (finished matches only).
+      - name: losses
+        description: Losses in the season (finished matches only).
+      - name: goals_scored
+        description: Total goals scored in the season.
+      - name: goals_conceded
+        description: Total goals conceded in the season.
+      - name: goal_difference
+        description: goals_scored minus goals_conceded.
+      - name: clean_sheets
+        description: Matches in which the club conceded zero goals at full time.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - team_id
+            - league_id
+            - league_season
+
+  - name: fact_player_match_stats
+    description: >
+      One row per player per fixture. Passthrough of int_player_match_stats with match context
+      and per-match performance stats. Join dim_player, dim_club, and fact_fixture on fixture_id.
+    columns:
+      - name: fixture_id
+        description: Identifier for the fixture.
+        tests:
+          - not_null
+      - name: player_id
+        description: Identifier for the player.
+        tests:
+          - not_null
+      - name: team_id
+        description: >
+          Team the player represented in this match (club or national team for WC/Euros fixtures).
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_club')
+              field: team_id
+              config:
+                severity: warn
+      - name: league_id
+        description: Competition the match belongs to.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_league')
+              field: league_id
+      - name: goals_scored
+        description: Goals scored by the player in this match.
+      - name: assists
+        description: Assists in this match.
+      - name: minutes_played
+        description: Minutes played in this match.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - fixture_id
+            - player_id
+
+  - name: fact_player_club_period
+    description: >
+      One row per player club stint from transfer history. Passthrough of int_player_club_periods.
+      Use for which club on a date — not scd_player_club (squad audit). See ADR 011.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - player_id
+            - team_id
+            - period_start_date
+    columns:
+      - name: player_id
+        tests:
+          - not_null
+      - name: team_id
+        tests:
+          - not_null
+      - name: period_start_date
+        tests:
+          - not_null
+
+  - name: fact_player_market_value_period
+    description: >
+      One row per fee-bearing permanent transfer. Passthrough of int_player_market_value_periods.
+      transfer_fee is the raw API string (e.g. € 75M). Join dim_player and dim_club on destination team_id.
+      All transfer types and club stints — fact_player_club_period. Relationship tests use severity warn.
+    columns:
+      - name: player_id
+        description: Identifier for the player.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_player')
+              field: player_id
+              config:
+                severity: warn
+      - name: team_id
+        description: Club the player transferred to (destination).
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_club')
+              field: team_id
+              config:
+                severity: warn
+      - name: transfer_date
+        description: Date the transfer was completed.
+        tests:
+          - not_null
+      - name: transfer_fee
+        description: Raw fee string from the API; never null in this model.
+        tests:
+          - not_null
+      - name: transfer_type
+        description: Normalized type; fee-bearing rows should be permanent.
+        tests:
+          - accepted_values:
+              values: ['permanent']
+      - name: transfer_window
+        description: summer, winter, or emergency.
+        tests:
+          - accepted_values:
+              values: ['summer', 'winter', 'emergency']
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - player_id
+            - team_id
+            - transfer_date
+
+  - name: fact_player_season
+    description: >
+      One row per player per club per league per season. Mid-season transfers get one row per club.
+      Passthrough of int_player_season_metrics. Join dim_player, dim_club, and dim_league in marts.
+      Relationship tests to dims use severity warn — team_id may be a national team (WC/Euros) or a
+      club outside dim_club; player_id may appear in match stats before raw_players ingest for that player.
+    columns:
+      - name: player_id
+        description: Identifier for the player.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_player')
+              field: player_id
+              config:
+                severity: warn
+      - name: team_id
+        description: >
+          Team the player represented for these season totals (club or national team for WC/Euros leagues).
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_club')
+              field: team_id
+              config:
+                severity: warn
+      - name: league_id
+        description: League the metrics belong to.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_league')
+              field: league_id
+      - name: league_season
+        description: Season year.
+        tests:
+          - not_null
+      - name: goals
+        description: Total goals scored in the season.
+      - name: assists
+        description: Total assists in the season.
+      - name: avg_rating
+        description: Average match rating across rated appearances.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - player_id
+            - team_id
+            - league_id
+            - league_season
+
+  - name: fact_club_domestic_cup_run
+    description: >
+      One row per club per fixture in a domestic cup (FA Cup, Carabao Cup, Coupe de France,
+      DFB-Pokal, Coppa Italia, Copa del Rey). Exposes int_club_domestic_cup_runs with
+      perspective-normalised scores and is_farthest_round. Join to dim_club on team_id.
+    columns:
+      - name: fixture_id
+        description: Identifier for the cup fixture.
+        tests:
+          - not_null
+      - name: team_id
+        description: Identifier for the club.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_club')
+              field: team_id
+      - name: league_id
+        description: Cup competition identifier (45, 48, 66, 81, 137, 143).
+        tests:
+          - not_null
+          - accepted_values:
+              values: [45, 48, 66, 81, 137, 143]
+      - name: league_season
+        description: Season year.
+        tests:
+          - not_null
+      - name: league_round
+        description: Cup round label (e.g. Round of 16, Final).
+        tests:
+          - not_null
+      - name: is_farthest_round
+        description: True if this is the farthest round the club reached in this cup and season.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - fixture_id
+            - team_id
+            - league_id
+            - league_season
+            - league_round
+
+  - name: fact_club_intl_run
+    description: >
+      One row per club per fixture in UEFA Champions League (2) or FIFA Club World Cup (15).
+      Exposes int_club_intl_runs with group stage context and is_farthest_round. Join to
+      dim_club on team_id. Note: Club World Cup format changed significantly in 2025.
+    columns:
+      - name: fixture_id
+        description: Identifier for the fixture.
+        tests:
+          - not_null
+      - name: team_id
+        description: Identifier for the club.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_club')
+              field: team_id
+      - name: league_id
+        description: Tournament identifier (2 = UCL, 15 = CWC).
+        tests:
+          - not_null
+          - accepted_values:
+              values: [2, 15]
+      - name: league_season
+        description: Season year.
+        tests:
+          - not_null
+      - name: league_round
+        description: Tournament round label (e.g. Group Stage - 1, Final).
+        tests:
+          - not_null
+      - name: is_farthest_round
+        description: True if this is the farthest round the club reached in this tournament and season.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - fixture_id
+            - team_id
+            - league_id
+            - league_season
+            - league_round
+
+  - name: fact_national_team_run
+    description: >
+      One row per national team per fixture in the World Cup (1) or Euros (4). Exposes
+      int_national_team_runs — qualifying rounds excluded; neutral-venue tournaments with
+      group stage standings joined where available. Join to dim_national_team on team_id.
+      Coverage limited to tournaments 1 and 4 only.
+    columns:
+      - name: fixture_id
+        description: Identifier for the fixture.
+        tests:
+          - not_null
+      - name: team_id
+        description: Identifier for the national team.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_national_team')
+              field: team_id
+      - name: league_id
+        description: Tournament identifier (1 = World Cup, 4 = Euros).
+        tests:
+          - not_null
+          - accepted_values:
+              values: [1, 4]
+      - name: league_season
+        description: Year of the tournament edition.
+        tests:
+          - not_null
+      - name: league_round
+        description: Tournament round label.
+        tests:
+          - not_null
+      - name: is_farthest_round
+        description: >
+          True for all fixtures in the team's deepest round that edition (not only the exit match).
+      - name: round_order
+        description: Numeric rank of the round for ordering and max() summaries.
+      - name: group_name
+        description: Group assignment (group stage only).
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - fixture_id
+            - team_id
+            - league_id
+            - league_season
+            - league_round
