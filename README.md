@@ -2,7 +2,7 @@
 
 A production analytics warehouse for 15 football competitions — built with Python, PySpark, dbt, and Databricks. Real API data, layered transformations, 18 reporting marts, and three consumption layers.
 
-**[Portfolio site](https://football-analytics-dbt.vercel.app)** · **[Case study](docs/case-study.md)** · **[Gallery](https://football-analytics-dbt.vercel.app/gallery)**
+**[Portfolio site](https://football-analytics-dbt.vercel.app)** · **[Case study](https://football-analytics-dbt.vercel.app/case-study)** · **[Gallery](https://football-analytics-dbt.vercel.app/gallery)**
 
 ---
 
