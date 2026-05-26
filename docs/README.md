@@ -1,6 +1,6 @@
 # Project Documentation
 
-This folder contains technical documentation for the 
+This folder contains technical documentation for the
 Football Analytics dbt Project.
 
 ## Architecture overview
@@ -11,11 +11,11 @@ Football Analytics dbt Project.
 
 ## Architecture Decision Records (ADRs)
 
-ADRs document the key architectural decisions made during the 
-project, including the context, the decision itself, alternatives 
+ADRs document the key architectural decisions made during the
+project, including the context, the decision itself, alternatives
 considered, and the consequences of each choice.
 
-Reading the ADRs gives you a complete picture of why the project 
+Reading the ADRs gives you a complete picture of why the project
 is built the way it is — not just what was built.
 
 | ADR | Title | Status |
