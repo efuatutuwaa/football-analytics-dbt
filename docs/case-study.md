@@ -73,7 +73,23 @@ API-Football → Python + PySpark → Delta Lake → dbt layers → Marts → Co
 
 ### Orchestration
 
-Ingestion and dbt transformations are both orchestrated via Databricks Jobs. A future migration to a dedicated orchestration layer — Airflow or Dagster — would give finer-grained dependency control and better failure isolation across the ingestion-to-transformation boundary.
+Ingestion and dbt transformations are both orchestrated via Databricks Jobs DAG — there is no separate orchestration system. The full pipeline runs as a single DAG:
+
+```
+Databricks Jobs DAG:
+
+  Ingest tasks (7 leaf tasks, parallel)
+       ↓
+  dbt: staging → intermediate → core → marts → ops → semantic
+       ↓
+  dbt test
+       ↓
+  dbt snapshot
+```
+
+The full pipeline — ingestion across 15 competitions, 66 dbt models across 6 transformation layers, tests, and snapshots — completes in **32 minutes 46 seconds** end to end. Ingestion alone accounts for approximately 23 minutes; the entire dbt stack adds only 9 minutes on top.
+
+A future migration to Airflow or Dagster would give finer-grained dependency control and better failure isolation across the ingestion-to-transformation boundary.
 
 ### Architectural decision — raw layer design
 
@@ -321,4 +337,3 @@ The technical artefacts matter — ingestion pipelines, marts, snapshots, semant
 Football turned out not to be the easy part. That was exactly why the project became worth building.
 
 ---
-
