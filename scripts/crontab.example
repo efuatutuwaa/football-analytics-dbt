@@ -1,19 +1,19 @@
-# Example crontab entries for football-analytics-dbt ops scripts.
+# Laptop cron — football-analytics-dbt scheduled ops
 #
-# Install:
-#   1. cp .env.example .env  (fill in credentials)
+# Setup:
+#   1. cp .env.example .env  (fill in Databricks + Gmail credentials)
 #   2. chmod +x scripts/run_scheduled_ops.sh
 #   3. crontab -e
-#   4. Paste the lines below (adjust paths and schedule)
+#   4. Paste ONE line below (uncomment and keep your path)
 #
 # Logs: football-analytics-dbt/logs/scheduled_ops_*.log
+#
+# Schedule: 06:00 UTC daily = 09:00 in UTC+3 (Kenya/EAT)
+# Change hour if your Databricks Job finishes at a different time.
+# Mac cron uses your laptop's local timezone unless you set TZ in the line.
 
-# Daily at 06:00 UTC — after typical overnight Databricks ingest + dbt (~33 min pipeline)
-# Mac path example:
-0 6 * * * /Users/you/Desktop/dbt/football-analytics-dbt/scripts/run_scheduled_ops.sh
+# Full ops (spike check + dbt triage if target/run_results.json exists):
+0 9 * * * /Users/efuatutuwaa-ampofo/Desktop/dbt/football-analytics-dbt/scripts/run_scheduled_ops.sh
 
-# Alternative: spike check only (emails via job_spike_check.py)
-# 0 6 * * * cd /Users/you/Desktop/dbt/football-analytics-dbt && /Users/you/Desktop/dbt/dbt-env/bin/python scripts/job_spike_check.py >> logs/spike_check.log 2>&1
-
-# Alternative: dbt triage only (requires target/run_results.json from a recent dbt run)
-# 15 6 * * * cd /Users/you/Desktop/dbt/football-analytics-dbt && /Users/you/Desktop/dbt/dbt-env/bin/python scripts/dbt_alert.py >> logs/dbt_triage.log 2>&1
+# If you prefer UTC explicitly:
+# TZ=UTC 0 6 * * * /Users/efuatutuwaa-ampofo/Desktop/dbt/football-analytics-dbt/scripts/run_scheduled_ops.sh
