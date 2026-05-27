@@ -1,0 +1,70 @@
+name: Deploy dbt docs
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dbt adapter
+        run: pip install dbt-databricks
+
+      - name: Create profiles.yml
+        env:
+          DBT_DATABRICKS_HOST: ${{ secrets.DBT_DATABRICKS_HOST }}
+          DBT_DATABRICKS_HTTP_PATH: ${{ secrets.DBT_DATABRICKS_HTTP_PATH }}
+          DBT_DATABRICKS_TOKEN: ${{ secrets.DBT_DATABRICKS_TOKEN }}
+        run: |
+          mkdir -p ~/.dbt
+          echo "football_analytics:"                          > ~/.dbt/profiles.yml
+          echo "  target: dev"                               >> ~/.dbt/profiles.yml
+          echo "  outputs:"                                  >> ~/.dbt/profiles.yml
+          echo "    dev:"                                    >> ~/.dbt/profiles.yml
+          echo "      type: databricks"                      >> ~/.dbt/profiles.yml
+          echo "      host: $DBT_DATABRICKS_HOST"           >> ~/.dbt/profiles.yml
+          echo "      http_path: $DBT_DATABRICKS_HTTP_PATH" >> ~/.dbt/profiles.yml
+          echo "      token: $DBT_DATABRICKS_TOKEN"         >> ~/.dbt/profiles.yml
+          echo "      catalog: efua_data_platform"           >> ~/.dbt/profiles.yml
+          echo "      schema: football_staging"              >> ~/.dbt/profiles.yml
+          echo "      threads: 4"                            >> ~/.dbt/profiles.yml
+
+      - name: Build docs
+        run: |
+          dbt deps
+          dbt docs generate
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./target
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
