@@ -1,5 +1,6 @@
 # Databricks notebook source
 # ruff: noqa: F821, E402
+# flake8: noqa: E402, F821
 
 # COMMAND ----------
 
