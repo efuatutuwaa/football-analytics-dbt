@@ -11,11 +11,25 @@ subprocess.check_call([sys.executable, "-m", "pip", "install", "dbt-databricks",
 
 # COMMAND ----------
 
+# Get the widget BEFORE restarting Python and save it to a temp file
+import os
+
+dbt_command = dbutils.widgets.get("dbt_command")
+os.makedirs("/tmp/dbt_run", exist_ok=True)
+with open("/tmp/dbt_run/command.txt", "w") as f:
+    f.write(dbt_command)
+
+# COMMAND ----------
+
 dbutils.library.restartPython()
 
 # COMMAND ----------
 
+# Read the command back AFTER restart
 import os
+
+with open("/tmp/dbt_run/command.txt", "r") as f:
+    dbt_command = f.read().strip()
 
 host = dbutils.secrets.get("football-analytics", "DATABRICKS_HOST")
 http_path = dbutils.secrets.get("football-analytics", "DATABRICKS_HTTP_PATH")
@@ -40,12 +54,11 @@ with open("/tmp/dbt_profiles/profiles.yml", "w") as f:
     f.write(profiles_content)
 
 print("profiles.yml written successfully")
+print(f"dbt command: {dbt_command}")
 
 # COMMAND ----------
 
 import subprocess
-
-dbt_command = dbutils.widgets.get("dbt_command")
 
 deps_result = subprocess.run(
     "dbt deps --profiles-dir /tmp/dbt_profiles",
