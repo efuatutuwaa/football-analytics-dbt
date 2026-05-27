@@ -1,0 +1,19 @@
+# Example crontab entries for football-analytics-dbt ops scripts.
+#
+# Install:
+#   1. cp .env.example .env  (fill in credentials)
+#   2. chmod +x scripts/run_scheduled_ops.sh
+#   3. crontab -e
+#   4. Paste the lines below (adjust paths and schedule)
+#
+# Logs: football-analytics-dbt/logs/scheduled_ops_*.log
+
+# Daily at 06:00 UTC — after typical overnight Databricks ingest + dbt (~33 min pipeline)
+# Mac path example:
+0 6 * * * /Users/you/Desktop/dbt/football-analytics-dbt/scripts/run_scheduled_ops.sh
+
+# Alternative: spike check only (emails via job_spike_check.py)
+# 0 6 * * * cd /Users/you/Desktop/dbt/football-analytics-dbt && /Users/you/Desktop/dbt/dbt-env/bin/python scripts/job_spike_check.py >> logs/spike_check.log 2>&1
+
+# Alternative: dbt triage only (requires target/run_results.json from a recent dbt run)
+# 15 6 * * * cd /Users/you/Desktop/dbt/football-analytics-dbt && /Users/you/Desktop/dbt/dbt-env/bin/python scripts/dbt_alert.py >> logs/dbt_triage.log 2>&1

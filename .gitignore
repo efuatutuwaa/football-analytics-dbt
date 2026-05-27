@@ -212,6 +212,7 @@ __marimo__/
 target/
 dbt_packages/
 logs/
+!logs/.gitkeep
 .user.yml
 .env
 profiles.yml
