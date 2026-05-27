@@ -1,34 +1,36 @@
 # Scripts
 
-## Scheduled ops (cron)
+## Scheduled ops (laptop cron)
+
+Runs from your Mac via `crontab` — not GitHub Actions.
 
 | Script | Purpose |
 |--------|---------|
 | `job_spike_check.py` | Ingestion runtime / failure / zero-row spikes → email |
 | `dbt_alert.py` | Parse `target/run_results.json` → triage report → `send_triage_report` |
 | `send_triage_report.py` | Email helper (stdin or imported by `dbt_alert`) |
-| `run_scheduled_ops.sh` | Runs spike check + dbt triage (cron entrypoint) |
+| `run_scheduled_ops.sh` | Cron entrypoint: runs both checks |
 
-### Local cron (Mac)
+### Setup (one time)
 
-1. `cp .env.example .env` and fill credentials
-2. `chmod +x scripts/run_scheduled_ops.sh`
-3. `crontab -e` — see `scripts/crontab.example`
-
-### GitHub Actions
-
-`.github/workflows/scheduled-ops.yml` runs **job spike check** daily (06:00 UTC).
-
-Add repo secrets: `DBT_DATABRICKS_*`, `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `TRIAGE_RECIPIENT_EMAIL`.
-
-### Databricks (dbt triage after pipeline)
-
-`target/run_results.json` lives on the cluster after `run_dbt.py` tasks. Add a final Job task:
-
-```python
-%pip install python-dotenv
-# secrets + run from repo root:
-# python scripts/dbt_alert.py
+```bash
+cd /Users/efuatutuwaa-ampofo/Desktop/dbt/football-analytics-dbt
+cp .env.example .env          # DATABRICKS_* + GMAIL_*
+chmod +x scripts/run_scheduled_ops.sh
+./scripts/run_scheduled_ops.sh   # test manually
+crontab -e                       # paste line from scripts/crontab.example
 ```
 
-Or run `dbt_alert.py` locally after `dbt test` when `target/` is present.
+### Schedule
+
+Default in `crontab.example`: **09:00 local time** daily (after a typical overnight Databricks run).
+
+Your laptop must be **on and awake** at that time for cron to fire.
+
+### dbt triage note
+
+`dbt_alert` only runs if `target/run_results.json` exists locally (e.g. after you run `dbt test` on your machine). Spike check always runs against Databricks.
+
+### Logs
+
+`logs/scheduled_ops_YYYYMMDD_HHMMSS.log`
