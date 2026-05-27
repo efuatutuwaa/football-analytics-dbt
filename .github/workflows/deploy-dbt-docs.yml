@@ -1,0 +1,74 @@
+name: Deploy dbt docs
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dbt adapter
+        run: pip install dbt-databricks
+
+      - name: Create profiles.yml
+        env:
+          DBT_DATABRICKS_HOST: ${{ secrets.DBT_DATABRICKS_HOST }}
+          DBT_DATABRICKS_HTTP_PATH: ${{ secrets.DBT_DATABRICKS_HTTP_PATH }}
+          DBT_DATABRICKS_TOKEN: ${{ secrets.DBT_DATABRICKS_TOKEN }}
+        run: |
+          mkdir -p ~/.dbt
+          cat > ~/.dbt/profiles.yml <<'EOF'
+          football_analytics:
+            target: prod
+            outputs:
+              prod:
+                type: databricks
+                host: ${DBT_DATABRICKS_HOST}
+                http_path: ${DBT_DATABRICKS_HTTP_PATH}
+                token: ${DBT_DATABRICKS_TOKEN}
+                catalog: efua_data_platform
+                schema: football_staging
+                threads: 4
+          EOF
+          # Expand env vars inside the file (cat heredoc above is single-quoted).
+          perl -pi -e 's/\\$\\{DBT_DATABRICKS_HOST\\}/$ENV{DBT_DATABRICKS_HOST}/g; s/\\$\\{DBT_DATABRICKS_HTTP_PATH\\}/$ENV{DBT_DATABRICKS_HTTP_PATH}/g; s/\\$\\{DBT_DATABRICKS_TOKEN\\}/$ENV{DBT_DATABRICKS_TOKEN}/g' ~/.dbt/profiles.yml
+
+      - name: Build docs
+        run: |
+          dbt deps
+          dbt docs generate
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./target
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
