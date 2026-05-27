@@ -5,16 +5,20 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime
 
-GMAIL_USER = os.environ["GMAIL_USER"]
-GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
-RECIPIENT_EMAIL = os.environ.get("TRIAGE_RECIPIENT_EMAIL", GMAIL_USER)
-
 
 def send_report(subject: str, body_text: str) -> None:
+    gmail_user = os.environ.get("GMAIL_USER")
+    gmail_password = os.environ.get("GMAIL_APP_PASSWORD")
+    recipient = os.environ.get("TRIAGE_RECIPIENT_EMAIL", gmail_user)
+
+    if not gmail_user or not gmail_password:
+        print("Email skipped — GMAIL_USER or GMAIL_APP_PASSWORD not set.")
+        return
+
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = GMAIL_USER
-    msg["To"] = RECIPIENT_EMAIL
+    msg["From"] = gmail_user
+    msg["To"] = recipient
 
     html = f"""
     <html><body>
@@ -33,10 +37,10 @@ def send_report(subject: str, body_text: str) -> None:
     msg.attach(MIMEText(html, "html"))
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-        server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-        server.sendmail(GMAIL_USER, RECIPIENT_EMAIL, msg.as_string())
+        server.login(gmail_user, gmail_password)
+        server.sendmail(gmail_user, recipient, msg.as_string())
 
-    print(f"Report sent to {RECIPIENT_EMAIL}")
+    print(f"Report sent to {recipient}")
 
 
 if __name__ == "__main__":

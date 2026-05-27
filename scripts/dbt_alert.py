@@ -16,15 +16,15 @@ Environment variables required:
 
 import json
 import os
-import smtplib
 import subprocess
 import sys
 from datetime import datetime, timezone
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from send_triage_report import send_report  # noqa: E402
 
 load_dotenv()
 
@@ -146,39 +146,6 @@ def build_report(summary: dict) -> str:
     return "\n".join(lines)
 
 
-def send_email(subject: str, body: str) -> None:
-    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
-        print("Email skipped — GMAIL_USER or GMAIL_APP_PASSWORD not set.")
-        return
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = GMAIL_USER
-    msg["To"] = RECIPIENT_EMAIL
-
-    html = f"""
-    <html><body>
-    <h2 style="color:#c0392b;">dbt Triage Report</h2>
-    <p style="color:#666;">Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}</p>
-    <hr/>
-    <pre style="font-family:monospace;font-size:13px;background:#f4f4f4;padding:16px;border-radius:6px;">
-{body}
-    </pre>
-    <hr/>
-    <p style="color:#999;font-size:11px;">football-analytics-dbt · automated triage</p>
-    </body></html>
-    """
-
-    msg.attach(MIMEText(body, "plain"))
-    msg.attach(MIMEText(html, "html"))
-
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-        server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-        server.sendmail(GMAIL_USER, RECIPIENT_EMAIL, msg.as_string())
-
-    print(f"Report emailed to {RECIPIENT_EMAIL}")
-
-
 def create_github_issue(name: str, body: str) -> None:
     if not GITHUB_REPO:
         print("GitHub issue skipped — GITHUB_REPO not set.")
@@ -223,7 +190,10 @@ def main() -> None:
     else:
         subject = "dbt run — all nodes passed"
 
-    send_email(subject, report)
+    if GMAIL_USER and GMAIL_APP_PASSWORD:
+        send_report(subject, report)
+    else:
+        print("Email skipped — GMAIL_USER or GMAIL_APP_PASSWORD not set.")
 
     # open github issues for model errors and HIGH severity test failures
     for error in summary["errors"]:
