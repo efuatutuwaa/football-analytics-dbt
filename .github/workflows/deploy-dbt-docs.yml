@@ -40,21 +40,17 @@ jobs:
           DBT_DATABRICKS_TOKEN: ${{ secrets.DBT_DATABRICKS_TOKEN }}
         run: |
           mkdir -p ~/.dbt
-          cat > ~/.dbt/profiles.yml <<'EOF'
-          football_analytics:
-            target: prod
-            outputs:
-              prod:
-                type: databricks
-                host: ${DBT_DATABRICKS_HOST}
-                http_path: ${DBT_DATABRICKS_HTTP_PATH}
-                token: ${DBT_DATABRICKS_TOKEN}
-                catalog: efua_data_platform
-                schema: football_staging
-                threads: 4
-          EOF
-          # Expand env vars inside the file (cat heredoc above is single-quoted).
-          perl -pi -e 's/\\$\\{DBT_DATABRICKS_HOST\\}/$ENV{DBT_DATABRICKS_HOST}/g; s/\\$\\{DBT_DATABRICKS_HTTP_PATH\\}/$ENV{DBT_DATABRICKS_HTTP_PATH}/g; s/\\$\\{DBT_DATABRICKS_TOKEN\\}/$ENV{DBT_DATABRICKS_TOKEN}/g' ~/.dbt/profiles.yml
+          echo "football_analytics:"                          > ~/.dbt/profiles.yml
+          echo "  target: dev"                               >> ~/.dbt/profiles.yml
+          echo "  outputs:"                                  >> ~/.dbt/profiles.yml
+          echo "    dev:"                                    >> ~/.dbt/profiles.yml
+          echo "      type: databricks"                      >> ~/.dbt/profiles.yml
+          echo "      host: $DBT_DATABRICKS_HOST"           >> ~/.dbt/profiles.yml
+          echo "      http_path: $DBT_DATABRICKS_HTTP_PATH" >> ~/.dbt/profiles.yml
+          echo "      token: $DBT_DATABRICKS_TOKEN"         >> ~/.dbt/profiles.yml
+          echo "      catalog: efua_data_platform"           >> ~/.dbt/profiles.yml
+          echo "      schema: football_staging"              >> ~/.dbt/profiles.yml
+          echo "      threads: 4"                            >> ~/.dbt/profiles.yml
 
       - name: Build docs
         run: |
