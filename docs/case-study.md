@@ -293,6 +293,12 @@ The platform exposes data through three consumption paths, each designed to answ
 
 The MetricFlow semantic layer is the least obvious choice to justify, but the most important for long-term consistency. Without it, "club win rate" is whatever SQL the current analyst writes. With it, club win rate has one definition, one grain, one set of competition-type filters — and every consumer gets the same number. The semantic layer is not a BI tool. It is a contract.
 
+This contract becomes the foundation for self-serve analytics. When metrics are defined once and trusted everywhere, analysts don't need to ask an engineer every time they want to slice a number a different way. They query confidently because the definition is stable underneath them.
+
+It also positions the platform for conversational analytics. As AI-powered query interfaces mature — tools that let a business user ask "which clubs improved most in points-per-game between 2023 and 2024?" in plain language — the semantic layer is what makes those answers trustworthy. Without consistent metric definitions, a conversational interface returns confident-sounding numbers that mean different things depending on how the question was phrased. With MetricFlow, the answer is grounded in the same definition every analyst uses.
+
+The three consumption paths — Streamlit, LookML, and MetricFlow — are not alternatives. They complement each other. Streamlit for exploration and visual storytelling. LookML for flexible BI slicing. MetricFlow for consistent, trustworthy metrics that power both — and eventually, conversational interfaces too.
+
 ### What the mart layer actually covers
 
 The 18 reporting marts are organised into five domains, each answering a distinct class of business question:
