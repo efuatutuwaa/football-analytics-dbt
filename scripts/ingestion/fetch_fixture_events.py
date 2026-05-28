@@ -18,6 +18,11 @@ ENDPOINT = "fixtures/events"
 spark = SparkSession.builder.getOrCreate()
 requests_made = 0
 
+# If a fixture returns no events, mark it as skipped — but re-try after N days.
+# This protects API quota while still allowing for late backfills / temporary outages
+# (e.g. major tournaments / high-traffic periods).
+SKIP_RETRY_DAYS = 7
+
 EVENT_SCHEMA = StructType(
     [
         StructField("fixture_id", IntegerType(), True),
@@ -65,7 +70,12 @@ def get_fixture_ids(league_id: int, season: int) -> list:
 
 
 def get_ingested_fixture_ids() -> set:
-    """Return all fixture IDs already ingested or permanently skipped."""
+    """Return fixture IDs already ingested or recently skipped.
+
+    Skipped fixtures are treated as "done" only for a bounded window
+    (SKIP_RETRY_DAYS) to avoid re-querying empty fixtures every run while still
+    re-trying in case the provider backfills events later.
+    """
     try:
         ingested = spark.sql("""
             SELECT DISTINCT fixture_id
@@ -76,6 +86,7 @@ def get_ingested_fixture_ids() -> set:
             FROM efua_data_platform.football_raw.ingestion_metadata
             WHERE endpoint = '{ENDPOINT}'
             AND status = 'skipped'
+            AND last_ingested_at >= CURRENT_TIMESTAMP - INTERVAL {SKIP_RETRY_DAYS} DAYS
         """).collect()
         return {row[0] for row in ingested} | {
             row[0] for row in skipped if row[0] is not None
