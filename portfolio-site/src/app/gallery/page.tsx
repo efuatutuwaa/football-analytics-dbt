@@ -51,14 +51,15 @@ const GROUPS: Group[] = [
     description:
       "Club trophies, national team podium finishes, and European campaigns.",
     images: [
-      {
-        src: "/dashboards/club_honors.png",
-        alt: "Club honours — trophy cabinet showing league titles, domestic cups and European trophies per club-season with Double and Treble labels",
-      },
+      { src: "/dashboards/club_honors_2025.png", alt: "Club honours · 2025" },
       { src: "/dashboards/national_team_honors_2024.png", alt: "National team honours — 2024 season" },
       { src: "/dashboards/national_team_honors_history.png", alt: "National team honours — historical podium" },
-      { src: "/dashboards/ucl-club-campaign.png", alt: "UCL — club campaign summary" },
-      { src: "/dashboards/ucl-top-clubs-by-goals.png", alt: "UCL — top clubs by goals" },
+      { src: "/dashboards/ucl_club_campaign_2025.png", alt: "UCL campaign summary · 2025" },
+      { src: "/dashboards/ucl_top_clubs_by_goals_2025.png", alt: "UCL top clubs by goals · 2025" },
+      {
+        src: "/dashboards/match_breakdown_psg.png",
+        alt: "PSG UCL campaign — match breakdown by round · 2025",
+      },
       { src: "/dashboards/cwc_club_campaign.png", alt: "Club World Cup — campaign summary" },
       { src: "/dashboards/cwc-top-clubs-by-goals.png", alt: "Club World Cup — top clubs by goals" },
     ],
@@ -80,7 +81,8 @@ const GROUPS: Group[] = [
     description:
       "Ingestion health, API quota usage, and run status — ops as a first-class concern.",
     images: [
-      { src: "/dashboards/pipeline_health.png", alt: "Pipeline health — donut and heatmap" },
+      { src: "/dashboards/pipeline_health_eom.png", alt: "Pipeline health · end of season" },
+      { src: "/dashboards/daily_api_usage.png", alt: "Daily API requests · heatmap" },
     ],
   },
 ];
