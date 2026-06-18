@@ -66,6 +66,14 @@ def _wait_for_rate_limit(response: requests.Response, attempt: int) -> float:
     return min(60.0, max(15.0, 2.0**attempt))
 
 
+def _wait_for_server_error(attempt: int) -> float:
+    return min(60.0, max(2.0, 2.0**attempt))
+
+
+def _is_retryable_status(status_code: int) -> bool:
+    return status_code == 429 or status_code >= 500
+
+
 def _post_request_throttle(response: requests.Response) -> None:
     daily_remaining = _header_value(
         response,
@@ -107,7 +115,7 @@ def fetch_from_api(
     base_url: str = API_BASE_URL,
     semaphore: Optional[threading.Semaphore] = None,
 ) -> dict:
-    """GET an API-Football endpoint with 429 backoff and rate-limit headers."""
+    """GET an API-Football endpoint with retry on 429/5xx and rate-limit headers."""
     params = params or {}
     url = f"{base_url}/{endpoint}"
 
@@ -115,10 +123,15 @@ def fetch_from_api(
         response = None
         for attempt in range(MAX_RETRIES + 1):
             response = requests.get(url, headers=headers, params=params)
-            if response.status_code == 429:
-                wait = _wait_for_rate_limit(response, attempt)
+            if _is_retryable_status(response.status_code):
+                if response.status_code == 429:
+                    wait = _wait_for_rate_limit(response, attempt)
+                    reason = "Rate limited (429)"
+                else:
+                    wait = _wait_for_server_error(attempt)
+                    reason = f"Server error ({response.status_code})"
                 print(
-                    f"  Rate limited (429). Waiting {wait:.0f}s "
+                    f"  {reason}. Waiting {wait:.0f}s "
                     f"(retry {attempt + 1}/{MAX_RETRIES})..."
                 )
                 if attempt >= MAX_RETRIES:

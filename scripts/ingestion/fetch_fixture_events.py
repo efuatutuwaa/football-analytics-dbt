@@ -1,4 +1,5 @@
 import api_client
+import requests
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from pyspark.sql.types import (
@@ -209,10 +210,19 @@ def main():
             )
             all_events = []
             skipped_fixtures = []
+            failed_fixtures = []
             for fixture_id in new_fixture_ids:
-                response = fetch_from_api(
-                    "fixtures/events", params={"fixture": fixture_id}
-                )
+                try:
+                    response = fetch_from_api(
+                        "fixtures/events", params={"fixture": fixture_id}
+                    )
+                except requests.HTTPError as e:
+                    print(
+                        f"  ⚠️  Fixture {fixture_id} API error "
+                        f"(will retry next run): {e}"
+                    )
+                    failed_fixtures.append(fixture_id)
+                    continue
                 records = response.get("response", [])
                 if not records:
                     skipped_fixtures.append(fixture_id)
@@ -228,6 +238,11 @@ def main():
                 print(
                     f"  ⏭️  Logged {len(skipped_fixtures)} fixtures "
                     f"with no API data (won't re-query)"
+                )
+            if failed_fixtures:
+                print(
+                    f"  ⚠️  {len(failed_fixtures)} fixture(s) failed "
+                    f"due to API errors — will retry next run"
                 )
             update_metadata(
                 f"{ENDPOINT}_{season}",
