@@ -1,0 +1,207 @@
+{
+  "name": "football-analytics-pipeline",
+  "max_concurrent_runs": 1,
+  "git_source": {
+    "git_url": "https://github.com/efuatutuwaa/football-analytics-dbt.git",
+    "git_provider": "gitHub",
+    "git_branch": "main"
+  },
+  "job_clusters": [
+    {
+      "job_cluster_key": "ingest_cluster",
+      "new_cluster": {
+        "spark_version": "15.4.x-scala2.12",
+        "node_type_id": "i3.xlarge",
+        "num_workers": 1,
+        "spark_conf": {
+          "spark.databricks.cluster.profile": "singleNode",
+          "spark.master": "local[*]"
+        },
+        "custom_tags": {
+          "ResourceClass": "SingleNode"
+        }
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "task_key": "ingest_countries",
+      "job_cluster_key": "ingest_cluster",
+      "spark_python_task": {
+        "python_file": "scripts/ingestion/fetch_countries.py",
+        "source": "GIT"
+      }
+    },
+    {
+      "task_key": "ingest_leagues",
+      "depends_on": [{ "task_key": "ingest_countries" }],
+      "job_cluster_key": "ingest_cluster",
+      "spark_python_task": {
+        "python_file": "scripts/ingestion/fetch_leagues.py",
+        "source": "GIT"
+      }
+    },
+    {
+      "task_key": "ingest_teams",
+      "depends_on": [{ "task_key": "ingest_leagues" }],
+      "job_cluster_key": "ingest_cluster",
+      "spark_python_task": {
+        "python_file": "scripts/ingestion/fetch_teams.py",
+        "source": "GIT"
+      }
+    },
+    {
+      "task_key": "ingest_squads",
+      "depends_on": [{ "task_key": "ingest_teams" }],
+      "job_cluster_key": "ingest_cluster",
+      "spark_python_task": {
+        "python_file": "scripts/ingestion/fetch_team_squads.py",
+        "source": "GIT"
+      }
+    },
+    {
+      "task_key": "ingest_players",
+      "depends_on": [{ "task_key": "ingest_squads" }],
+      "job_cluster_key": "ingest_cluster",
+      "spark_python_task": {
+        "python_file": "scripts/ingestion/fetch_players.py",
+        "source": "GIT"
+      }
+    },
+    {
+      "task_key": "ingest_fixtures",
+      "depends_on": [{ "task_key": "ingest_players" }],
+      "job_cluster_key": "ingest_cluster",
+      "spark_python_task": {
+        "python_file": "scripts/ingestion/fetch_fixtures.py",
+        "source": "GIT"
+      }
+    },
+    {
+      "task_key": "ingest_fixture_events",
+      "depends_on": [{ "task_key": "ingest_fixtures" }],
+      "job_cluster_key": "ingest_cluster",
+      "spark_python_task": {
+        "python_file": "scripts/ingestion/fetch_fixture_events.py",
+        "source": "GIT"
+      }
+    },
+    {
+      "task_key": "ingest_fixture_statistics",
+      "depends_on": [{ "task_key": "ingest_fixture_events" }],
+      "job_cluster_key": "ingest_cluster",
+      "spark_python_task": {
+        "python_file": "scripts/ingestion/fetch_fixture_statistics.py",
+        "source": "GIT"
+      }
+    },
+    {
+      "task_key": "ingest_fixture_lineups",
+      "depends_on": [{ "task_key": "ingest_fixture_statistics" }],
+      "job_cluster_key": "ingest_cluster",
+      "spark_python_task": {
+        "python_file": "scripts/ingestion/fetch_fixture_lineups.py",
+        "source": "GIT"
+      }
+    },
+    {
+      "task_key": "ingest_player_statistics",
+      "depends_on": [{ "task_key": "ingest_fixture_lineups" }],
+      "job_cluster_key": "ingest_cluster",
+      "spark_python_task": {
+        "python_file": "scripts/ingestion/fetch_player_statistics.py",
+        "source": "GIT"
+      }
+    },
+    {
+      "task_key": "ingest_transfers",
+      "depends_on": [{ "task_key": "ingest_player_statistics" }],
+      "job_cluster_key": "ingest_cluster",
+      "spark_python_task": {
+        "python_file": "scripts/ingestion/fetch_transfers.py",
+        "source": "GIT"
+      }
+    },
+    {
+      "task_key": "ingest_standings",
+      "depends_on": [{ "task_key": "ingest_transfers" }],
+      "job_cluster_key": "ingest_cluster",
+      "spark_python_task": {
+        "python_file": "scripts/ingestion/fetch_standings.py",
+        "source": "GIT"
+      }
+    },
+    {
+      "task_key": "dbt_staging",
+      "depends_on": [{ "task_key": "ingest_standings" }],
+      "job_cluster_key": "ingest_cluster",
+      "notebook_task": {
+        "notebook_path": "scripts/ingestion/run_dbt",
+        "base_parameters": { "dbt_command": "run --select staging" }
+      }
+    },
+    {
+      "task_key": "dbt_intermediate",
+      "depends_on": [{ "task_key": "dbt_staging" }],
+      "job_cluster_key": "ingest_cluster",
+      "notebook_task": {
+        "notebook_path": "scripts/ingestion/run_dbt",
+        "base_parameters": { "dbt_command": "run --select intermediate" }
+      }
+    },
+    {
+      "task_key": "dbt_core",
+      "depends_on": [{ "task_key": "dbt_intermediate" }],
+      "job_cluster_key": "ingest_cluster",
+      "notebook_task": {
+        "notebook_path": "scripts/ingestion/run_dbt",
+        "base_parameters": { "dbt_command": "run --select core" }
+      }
+    },
+    {
+      "task_key": "dbt_marts",
+      "depends_on": [{ "task_key": "dbt_core" }],
+      "job_cluster_key": "ingest_cluster",
+      "notebook_task": {
+        "notebook_path": "scripts/ingestion/run_dbt",
+        "base_parameters": { "dbt_command": "run --select marts" }
+      }
+    },
+    {
+      "task_key": "dbt_ops",
+      "depends_on": [{ "task_key": "dbt_marts" }],
+      "job_cluster_key": "ingest_cluster",
+      "notebook_task": {
+        "notebook_path": "scripts/ingestion/run_dbt",
+        "base_parameters": { "dbt_command": "run --select ops" }
+      }
+    },
+    {
+      "task_key": "dbt_semantic",
+      "depends_on": [{ "task_key": "dbt_ops" }],
+      "job_cluster_key": "ingest_cluster",
+      "notebook_task": {
+        "notebook_path": "scripts/ingestion/run_dbt",
+        "base_parameters": { "dbt_command": "run --select semantic" }
+      }
+    },
+    {
+      "task_key": "dbt_test",
+      "depends_on": [{ "task_key": "dbt_semantic" }],
+      "job_cluster_key": "ingest_cluster",
+      "notebook_task": {
+        "notebook_path": "scripts/ingestion/run_dbt",
+        "base_parameters": { "dbt_command": "test" }
+      }
+    },
+    {
+      "task_key": "dbt_snapshot",
+      "depends_on": [{ "task_key": "dbt_test" }],
+      "job_cluster_key": "ingest_cluster",
+      "notebook_task": {
+        "notebook_path": "scripts/ingestion/run_dbt",
+        "base_parameters": { "dbt_command": "snapshot" }
+      }
+    }
+  ]
+}

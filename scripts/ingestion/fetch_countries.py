@@ -1,5 +1,4 @@
-import time
-import requests
+import api_client
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, TimestampType
@@ -10,29 +9,19 @@ HEADERS = {"x-apisports-key": API_KEY}
 ENDPOINT = "countries"
 
 spark = SparkSession.builder.getOrCreate()
-requests_made = 0
 
-COUNTRY_SCHEMA = StructType([
-    StructField("country_name", StringType(), True),
-    StructField("country_code", StringType(), True),
-    StructField("country_flag_url", StringType(), True),
-    StructField("ingested_at", TimestampType(), True),
-])
+COUNTRY_SCHEMA = StructType(
+    [
+        StructField("country_name", StringType(), True),
+        StructField("country_code", StringType(), True),
+        StructField("country_flag_url", StringType(), True),
+        StructField("ingested_at", TimestampType(), True),
+    ]
+)
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
-    global requests_made
-    url = f"{API_BASE_URL}/{endpoint}"
-    response = requests.get(url, headers=HEADERS, params=params)
-    response.raise_for_status()
-    requests_made += 1
-    remaining = response.headers.get("x-ratelimit-requests-remaining")
-    limit = response.headers.get("x-ratelimit-requests-limit")
-    print(f"  API requests remaining: {remaining}/{limit}")
-    if remaining and int(remaining) < 100:
-        raise Exception("⚠️ API request limit almost reached — stopping!")
-    time.sleep(0.5)
-    return response.json()
+    return api_client.fetch_from_api(endpoint, params, headers=HEADERS)
 
 
 def flatten_country(record: dict) -> dict:
@@ -59,8 +48,9 @@ def get_last_ingested_at(endpoint: str):
         return None
 
 
-def update_metadata(endpoint: str, rows_inserted: int, status: str,
-                    started_at: datetime = None):
+def update_metadata(
+    endpoint: str, rows_inserted: int, status: str, started_at: datetime = None
+):
     now = datetime.now(tz=timezone.utc)
     started_val = f"'{started_at.isoformat()}'" if started_at else "NULL"
     spark.sql(f"""
@@ -69,7 +59,7 @@ def update_metadata(endpoint: str, rows_inserted: int, status: str,
          requests_used, status, created_at, started_at)
         VALUES (
             '{endpoint}', NULL, '{now.isoformat()}',
-            {rows_inserted}, {requests_made}, '{status}',
+            {rows_inserted}, {api_client.get_requests_made()}, '{status}',
             '{now.isoformat()}', {started_val}
         )
     """)
@@ -79,22 +69,22 @@ def load_countries(countries: list) -> int:
     if not countries:
         return 0
     existing_names = {
-        row[0] for row in spark.sql("""
+        row[0]
+        for row in spark.sql("""
             SELECT country_name
             FROM efua_data_platform.football_raw.raw_countries
         """).collect()
     }
     new_countries = [
-        c for c in countries
+        c
+        for c in countries
         if c["country_name"] and c["country_name"] not in existing_names
     ]
     if not new_countries:
         print("  No new countries to load")
         return 0
     df = spark.createDataFrame(new_countries, schema=COUNTRY_SCHEMA)
-    df.write.mode("append").saveAsTable(
-        "efua_data_platform.football_raw.raw_countries"
-    )
+    df.write.mode("append").saveAsTable("efua_data_platform.football_raw.raw_countries")
     return len(new_countries)
 
 

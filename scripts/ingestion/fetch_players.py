@@ -1,10 +1,13 @@
-import time
-import requests
+import api_client
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from pyspark.sql.types import (
-    StructType, StructField, StringType,
-    IntegerType, DateType, TimestampType
+    StructType,
+    StructField,
+    StringType,
+    IntegerType,
+    DateType,
+    TimestampType,
 )
 
 from constants import LEAGUE_IDS, SEASONS
@@ -16,30 +19,20 @@ HEADERS = {"x-apisports-key": API_KEY}
 ENDPOINT = "players"
 
 spark = SparkSession.builder.getOrCreate()
-requests_made = 0
 
 
 def should_refetch(endpoint: str, league_id: int, season: int) -> bool:
     last_ingested = get_last_ingested_at(f"{endpoint}_{season}", league_id)
     if not last_ingested:
         return True
-    days_since = (datetime.now(tz=timezone.utc) - last_ingested.replace(tzinfo=timezone.utc)).days
+    days_since = (
+        datetime.now(tz=timezone.utc) - last_ingested.replace(tzinfo=timezone.utc)
+    ).days
     return days_since >= 365
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
-    global requests_made
-    url = f"{API_BASE_URL}/{endpoint}"
-    response = requests.get(url, headers=HEADERS, params=params)
-    response.raise_for_status()
-    requests_made += 1
-    remaining = response.headers.get("x-ratelimit-requests-remaining")
-    limit = response.headers.get("x-ratelimit-requests-limit")
-    print(f"  API requests remaining: {remaining}/{limit}")
-    if remaining and int(remaining) < 100:
-        raise Exception("⚠️ API request limit almost reached — stopping!")
-    time.sleep(0.5)
-    return response.json()
+    return api_client.fetch_from_api(endpoint, params, headers=HEADERS)
 
 
 def fetch_all_pages(league_id: int, season: int) -> list:
@@ -48,8 +41,7 @@ def fetch_all_pages(league_id: int, season: int) -> list:
     while True:
         print(f"    Fetching page {page}...")
         response = fetch_from_api(
-            ENDPOINT,
-            params={"league": league_id, "season": season, "page": page}
+            ENDPOINT, params={"league": league_id, "season": season, "page": page}
         )
         records = response.get("response", [])
         if not records:
@@ -117,9 +109,11 @@ def get_last_ingested_at(endpoint: str, entity_id: int = None):
 
 
 def update_metadata(
-    endpoint: str, rows_inserted: int,
-    status: str, entity_id: int = None,
-    started_at: datetime = None
+    endpoint: str,
+    rows_inserted: int,
+    status: str,
+    entity_id: int = None,
+    started_at: datetime = None,
 ):
     now = datetime.now(tz=timezone.utc)
     entity_val = str(entity_id) if entity_id else "NULL"
@@ -130,7 +124,7 @@ def update_metadata(
          requests_used, status, created_at, started_at)
         VALUES (
             '{endpoint}', {entity_val}, '{now.isoformat()}',
-            {rows_inserted}, {requests_made}, '{status}',
+            {rows_inserted}, {api_client.get_requests_made()}, '{status}',
             '{now.isoformat()}', {started_val}
         )
     """)
@@ -140,42 +134,41 @@ def load_players(players: list) -> int:
     if not players:
         return 0
     existing_ids = {
-        row[0] for row in spark.sql("""
+        row[0]
+        for row in spark.sql("""
             SELECT player_id
             FROM efua_data_platform.football_raw.raw_players
         """).collect()
     }
     new_players = [
-        p for p in players
-        if p["player_id"] and p["player_id"] not in existing_ids
+        p for p in players if p["player_id"] and p["player_id"] not in existing_ids
     ]
     if not new_players:
         print("  No new players to load")
         return 0
-    schema = StructType([
-        StructField("player_id", IntegerType(), True),
-        StructField("player_name", StringType(), True),
-        StructField("firstname", StringType(), True),
-        StructField("lastname", StringType(), True),
-        StructField("age", IntegerType(), True),
-        StructField("birth_date", DateType(), True),
-        StructField("birth_place", StringType(), True),
-        StructField("birth_country", StringType(), True),
-        StructField("nationality", StringType(), True),
-        StructField("height", StringType(), True),
-        StructField("weight", StringType(), True),
-        StructField("photo_url", StringType(), True),
-        StructField("ingested_at", TimestampType(), True),
-    ])
-    df = spark.createDataFrame(new_players, schema=schema)
-    df.write.mode("append").saveAsTable(
-        "efua_data_platform.football_raw.raw_players"
+    schema = StructType(
+        [
+            StructField("player_id", IntegerType(), True),
+            StructField("player_name", StringType(), True),
+            StructField("firstname", StringType(), True),
+            StructField("lastname", StringType(), True),
+            StructField("age", IntegerType(), True),
+            StructField("birth_date", DateType(), True),
+            StructField("birth_place", StringType(), True),
+            StructField("birth_country", StringType(), True),
+            StructField("nationality", StringType(), True),
+            StructField("height", StringType(), True),
+            StructField("weight", StringType(), True),
+            StructField("photo_url", StringType(), True),
+            StructField("ingested_at", TimestampType(), True),
+        ]
     )
+    df = spark.createDataFrame(new_players, schema=schema)
+    df.write.mode("append").saveAsTable("efua_data_platform.football_raw.raw_players")
     return len(new_players)
 
 
 def main():
-    global requests_made
     print("👤 Fetching players...")
     current_endpoint = None
     current_entity_id = None
@@ -184,7 +177,7 @@ def main():
     try:
         for league_id in LEAGUE_IDS:
             for season in SEASONS:
-                requests_made = 0
+                api_client.reset_requests_made()
 
                 if not should_refetch(ENDPOINT, league_id, season):
                     print(
@@ -217,7 +210,7 @@ def main():
                     player_rows,
                     "success",
                     league_id,
-                    started_at=started_at
+                    started_at=started_at,
                 )
 
         print("\n🎉 Players ingestion complete!")
@@ -225,8 +218,7 @@ def main():
     except Exception as e:
         if current_endpoint:
             update_metadata(
-                current_endpoint, 0, "failed",
-                current_entity_id, started_at
+                current_endpoint, 0, "failed", current_entity_id, started_at
             )
         print(f"❌ Error: {e}")
         raise

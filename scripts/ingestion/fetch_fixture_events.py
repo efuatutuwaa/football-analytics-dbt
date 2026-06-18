@@ -1,5 +1,4 @@
-import time
-import requests
+import api_client
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from pyspark.sql.types import (
@@ -16,7 +15,6 @@ HEADERS = {"x-apisports-key": API_KEY}
 ENDPOINT = "fixtures/events"
 
 spark = SparkSession.builder.getOrCreate()
-requests_made = 0
 
 # If a fixture returns no events, mark it as skipped — but re-try after N days.
 # This protects API quota while still allowing for late backfills / temporary outages
@@ -43,18 +41,7 @@ EVENT_SCHEMA = StructType(
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
-    global requests_made
-    url = f"{API_BASE_URL}/{endpoint}"
-    response = requests.get(url, headers=HEADERS, params=params)
-    response.raise_for_status()
-    requests_made += 1
-    remaining = response.headers.get("x-ratelimit-requests-remaining")
-    limit = response.headers.get("x-ratelimit-requests-limit")
-    print(f"  API requests remaining: {remaining}/{limit}")
-    if remaining and int(remaining) < 100:
-        raise Exception("⚠️ API request limit almost reached — stopping!")
-    time.sleep(0.5)
-    return response.json()
+    return api_client.fetch_from_api(endpoint, params, headers=HEADERS)
 
 
 def get_fixture_ids(league_id: int, season: int) -> list:
@@ -133,7 +120,7 @@ def update_metadata(
          requests_used, status, created_at, started_at)
         VALUES (
             '{endpoint}', {entity_val}, '{now.isoformat()}',
-            {rows_inserted}, {requests_made}, '{status}',
+            {rows_inserted}, {api_client.get_requests_made()}, '{status}',
             '{now.isoformat()}', {started_val}
         )
     """)
@@ -185,7 +172,6 @@ def log_skipped_fixtures_bulk(fixture_ids: list):
 
 
 def main():
-    global requests_made
     print("⚡ Fetching fixture events...")
     current_endpoint = None
     current_entity_id = None
@@ -202,7 +188,7 @@ def main():
         for row in combos:
             league_id = row[0]
             season = row[1]
-            requests_made = 0
+            api_client.reset_requests_made()
             started_at = datetime.now(tz=timezone.utc)
             current_endpoint = f"{ENDPOINT}_{season}"
             current_entity_id = league_id

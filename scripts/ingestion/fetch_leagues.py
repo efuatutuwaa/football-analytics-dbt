@@ -1,8 +1,15 @@
-import time
-import requests
+import api_client
 from datetime import datetime, timezone, date
 from pyspark.sql import SparkSession
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType, BooleanType, DateType
+from pyspark.sql.types import (
+    StructType,
+    StructField,
+    StringType,
+    IntegerType,
+    TimestampType,
+    BooleanType,
+    DateType,
+)
 
 from constants import LEAGUE_IDS, SEASONS
 
@@ -12,50 +19,42 @@ HEADERS = {"x-apisports-key": API_KEY}
 ENDPOINT = "leagues"
 
 spark = SparkSession.builder.getOrCreate()
-requests_made = 0
 
-LEAGUE_SCHEMA = StructType([
-    StructField("league_id", IntegerType(), True),
-    StructField("league_name", StringType(), True),
-    StructField("league_type", StringType(), True),
-    StructField("league_logo_url", StringType(), True),
-    StructField("country_name", StringType(), True),
-    StructField("country_code", StringType(), True),
-    StructField("country_flag_url", StringType(), True),
-    StructField("ingested_at", TimestampType(), True),
-])
+LEAGUE_SCHEMA = StructType(
+    [
+        StructField("league_id", IntegerType(), True),
+        StructField("league_name", StringType(), True),
+        StructField("league_type", StringType(), True),
+        StructField("league_logo_url", StringType(), True),
+        StructField("country_name", StringType(), True),
+        StructField("country_code", StringType(), True),
+        StructField("country_flag_url", StringType(), True),
+        StructField("ingested_at", TimestampType(), True),
+    ]
+)
 
-LEAGUE_SEASON_SCHEMA = StructType([
-    StructField("league_id", IntegerType(), True),
-    StructField("season_year", IntegerType(), True),
-    StructField("season_start", DateType(), True),
-    StructField("season_end", DateType(), True),
-    StructField("is_current_season", BooleanType(), True),
-    StructField("coverage_fixtures_events", BooleanType(), True),
-    StructField("coverage_fixtures_lineups", BooleanType(), True),
-    StructField("coverage_standings", BooleanType(), True),
-    StructField("coverage_players", BooleanType(), True),
-    StructField("coverage_top_scorers", BooleanType(), True),
-    StructField("coverage_injuries", BooleanType(), True),
-    StructField("coverage_predictions", BooleanType(), True),
-    StructField("coverage_odds", BooleanType(), True),
-    StructField("ingested_at", TimestampType(), True),
-])
+LEAGUE_SEASON_SCHEMA = StructType(
+    [
+        StructField("league_id", IntegerType(), True),
+        StructField("season_year", IntegerType(), True),
+        StructField("season_start", DateType(), True),
+        StructField("season_end", DateType(), True),
+        StructField("is_current_season", BooleanType(), True),
+        StructField("coverage_fixtures_events", BooleanType(), True),
+        StructField("coverage_fixtures_lineups", BooleanType(), True),
+        StructField("coverage_standings", BooleanType(), True),
+        StructField("coverage_players", BooleanType(), True),
+        StructField("coverage_top_scorers", BooleanType(), True),
+        StructField("coverage_injuries", BooleanType(), True),
+        StructField("coverage_predictions", BooleanType(), True),
+        StructField("coverage_odds", BooleanType(), True),
+        StructField("ingested_at", TimestampType(), True),
+    ]
+)
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
-    global requests_made
-    url = f"{API_BASE_URL}/{endpoint}"
-    response = requests.get(url, headers=HEADERS, params=params)
-    response.raise_for_status()
-    requests_made += 1
-    remaining = response.headers.get("x-ratelimit-requests-remaining")
-    limit = response.headers.get("x-ratelimit-requests-limit")
-    print(f"  API requests remaining: {remaining}/{limit}")
-    if remaining and int(remaining) < 100:
-        raise Exception("⚠️ API request limit almost reached — stopping!")
-    time.sleep(0.5)
-    return response.json()
+    return api_client.fetch_from_api(endpoint, params, headers=HEADERS)
 
 
 def _parse_date(val: str):
@@ -132,16 +131,17 @@ def should_refetch_league(league_id: int) -> bool:
     if not last_ingested:
         return True
     days_since = (
-        datetime.now(tz=timezone.utc)
-        - last_ingested.replace(tzinfo=timezone.utc)
+        datetime.now(tz=timezone.utc) - last_ingested.replace(tzinfo=timezone.utc)
     ).days
     return days_since >= 365
 
 
 def update_metadata(
-    endpoint: str, rows_inserted: int,
-    status: str, entity_id: int = None,
-    started_at: datetime = None
+    endpoint: str,
+    rows_inserted: int,
+    status: str,
+    entity_id: int = None,
+    started_at: datetime = None,
 ):
     now = datetime.now(tz=timezone.utc)
     entity_val = str(entity_id) if entity_id else "NULL"
@@ -152,7 +152,7 @@ def update_metadata(
          requests_used, status, created_at, started_at)
         VALUES (
             '{endpoint}', {entity_val}, '{now.isoformat()}',
-            {rows_inserted}, {requests_made}, '{status}',
+            {rows_inserted}, {api_client.get_requests_made()}, '{status}',
             '{now.isoformat()}', {started_val}
         )
     """)
@@ -162,29 +162,25 @@ def load_leagues(leagues: list) -> int:
     if not leagues:
         return 0
     existing_ids = {
-        row[0] for row in spark.sql("""
+        row[0]
+        for row in spark.sql("""
             SELECT league_id FROM efua_data_platform.football_raw.raw_leagues
         """).collect()
     }
     new_leagues = [
-        lg for lg in leagues
-        if lg["league_id"] and lg["league_id"] not in existing_ids
+        lg for lg in leagues if lg["league_id"] and lg["league_id"] not in existing_ids
     ]
     if not new_leagues:
         return 0
     df = spark.createDataFrame(new_leagues, schema=LEAGUE_SCHEMA)
-    df.write.mode("append").saveAsTable(
-        "efua_data_platform.football_raw.raw_leagues"
-    )
+    df.write.mode("append").saveAsTable("efua_data_platform.football_raw.raw_leagues")
     return len(new_leagues)
 
 
 def load_league_seasons(seasons: list) -> int:
     if not seasons:
         return 0
-    league_ids_str = ", ".join(
-        str(lid) for lid in {s["league_id"] for s in seasons}
-    )
+    league_ids_str = ", ".join(str(lid) for lid in {s["league_id"] for s in seasons})
     df = spark.createDataFrame(seasons, schema=LEAGUE_SEASON_SCHEMA)
     df = df.dropDuplicates(["league_id", "season_year"])
     df.write.mode("overwrite").option(
@@ -194,13 +190,12 @@ def load_league_seasons(seasons: list) -> int:
 
 
 def main():
-    global requests_made
     print("🏆 Fetching leagues...")
     current_entity_id = None
     started_at = None
     try:
         for league_id in LEAGUE_IDS:
-            requests_made = 0
+            api_client.reset_requests_made()
             if not should_refetch_league(league_id):
                 print(f"  League {league_id} recently fetched — skipping")
                 continue
@@ -222,16 +217,16 @@ def main():
             print(f"  ✅ Loaded {league_rows} leagues")
             print(f"  ✅ Loaded {season_rows} seasons")
             update_metadata(
-                ENDPOINT, league_rows + season_rows,
-                "success", league_id, started_at=started_at
+                ENDPOINT,
+                league_rows + season_rows,
+                "success",
+                league_id,
+                started_at=started_at,
             )
         print("\n🎉 Leagues ingestion complete!")
     except Exception as e:
         if current_entity_id:
-            update_metadata(
-                ENDPOINT, 0, "failed",
-                current_entity_id, started_at
-            )
+            update_metadata(ENDPOINT, 0, "failed", current_entity_id, started_at)
         print(f"❌ Error: {e}")
         raise
 

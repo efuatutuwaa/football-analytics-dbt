@@ -1,5 +1,3 @@
-import time
-import requests
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from pyspark.sql.types import (
@@ -12,6 +10,7 @@ from pyspark.sql.types import (
     BooleanType,
 )
 
+import api_client
 from constants import LEAGUE_IDS, SEASONS
 
 API_KEY = dbutils.secrets.get(scope="football", key="api_key")  # noqa: F821
@@ -20,7 +19,6 @@ HEADERS = {"x-apisports-key": API_KEY}
 ENDPOINT = "fixtures"
 
 spark = SparkSession.builder.getOrCreate()
-requests_made = 0
 
 FIXTURE_SCHEMA = StructType(
     [
@@ -67,21 +65,6 @@ SCORE_SCHEMA = StructType(
         StructField("ingested_at", TimestampType(), True),
     ]
 )
-
-
-def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
-    global requests_made
-    url = f"{API_BASE_URL}/{endpoint}"
-    response = requests.get(url, headers=HEADERS, params=params)
-    response.raise_for_status()
-    requests_made += 1
-    remaining = response.headers.get("x-ratelimit-requests-remaining")
-    limit = response.headers.get("x-ratelimit-requests-limit")
-    print(f"  API requests remaining: {remaining}/{limit}")
-    if remaining and int(remaining) < 100:
-        raise Exception("⚠️ API request limit almost reached — stopping!")
-    time.sleep(0.5)
-    return response.json()
 
 
 def _parse_ts(val: str):
@@ -230,7 +213,7 @@ def update_metadata(
          requests_used, status, created_at, started_at)
         VALUES (
             '{endpoint}', {entity_val}, '{now.isoformat()}',
-            {rows_inserted}, {requests_made}, '{status}',
+            {rows_inserted}, {api_client.get_requests_made()}, '{status}',
             '{now.isoformat()}', {started_val}
         )
     """)
@@ -277,7 +260,6 @@ def load_fixture_scores(scores: list) -> int:
 
 
 def main():
-    global requests_made
     print("🏟️ Fetching fixtures...")
     current_endpoint = None
     current_entity_id = None
@@ -285,7 +267,7 @@ def main():
     try:
         for league_id in LEAGUE_IDS:
             for season in SEASONS:
-                requests_made = 0
+                api_client.reset_requests_made()
                 if not should_refetch_fixtures(league_id, season):
                     print(
                         f"  League {league_id} season {season} "
@@ -304,8 +286,10 @@ def main():
                     f"\n  Fetching fixtures for league "
                     f"{league_id} season {season}{stale_reason}..."
                 )
-                response = fetch_from_api(
-                    ENDPOINT, params={"league": league_id, "season": season}
+                response = api_client.fetch_from_api(
+                    ENDPOINT,
+                    params={"league": league_id, "season": season},
+                    headers=HEADERS,
                 )
                 records = response.get("response", [])
                 if not records:

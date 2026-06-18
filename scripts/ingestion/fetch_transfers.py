@@ -1,6 +1,5 @@
-import time
 import threading
-import requests
+import api_client
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
@@ -19,10 +18,9 @@ API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
 ENDPOINT = "transfers"
 
-# Number of concurrent API requests — tune to your plan's req/min ceiling.
-# 3 workers × (0.5s sleep + ~0.3s latency) ≈ 3x serial throughput while
-# staying well within standard API-Football rate limits.
-API_CONCURRENCY = 3
+# Serial requests only — parallel ingest tasks in the Databricks DAG already
+# share the same API key; 3 workers can burst past the Ultra 450 req/min cap.
+API_CONCURRENCY = 1
 
 # Flush accumulated transfers to Delta every N players to bound memory
 # usage and preserve progress on partial failures.
@@ -30,8 +28,6 @@ FLUSH_EVERY = 500
 
 spark = SparkSession.builder.getOrCreate()
 
-requests_made = 0
-requests_lock = threading.Lock()
 api_semaphore = threading.Semaphore(API_CONCURRENCY)
 
 
@@ -126,22 +122,9 @@ def get_players_to_skip(in_window: bool) -> set:
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
-    """Fetch data from API-Football with rate limiting.
-    Thread-safe: semaphore controls concurrency, lock protects counter."""
-    global requests_made
-    url = f"{API_BASE_URL}/{endpoint}"
-    with api_semaphore:
-        response = requests.get(url, headers=HEADERS, params=params)
-        response.raise_for_status()
-        with requests_lock:
-            requests_made += 1
-        remaining = response.headers.get("x-ratelimit-requests-remaining")
-        limit = response.headers.get("x-ratelimit-requests-limit")
-        print(f"  API requests remaining: {remaining}/{limit}")
-        if remaining and int(remaining) < 100:
-            raise Exception("⚠️ API request limit almost reached — stopping!")
-        time.sleep(0.5)
-    return response.json()
+    return api_client.fetch_from_api(
+        endpoint, params, headers=HEADERS, semaphore=api_semaphore
+    )
 
 
 def _parse_date(val: str):
@@ -202,7 +185,7 @@ def update_metadata(
          requests_used, status, created_at, started_at)
         VALUES (
             '{endpoint}', {entity_val}, '{now.isoformat()}',
-            {rows_inserted}, {requests_made}, '{status}',
+            {rows_inserted}, {api_client.get_requests_made()}, '{status}',
             '{now.isoformat()}', {started_val}
         )
     """)

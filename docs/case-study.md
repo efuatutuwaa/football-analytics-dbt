@@ -78,7 +78,7 @@ Ingestion and dbt transformations are both orchestrated via Databricks Jobs DAG 
 ```
 Databricks Jobs DAG:
 
-  Ingest tasks (7 leaf tasks, parallel)
+  Ingest tasks (12 tasks, serialized)
        ↓
   dbt: staging → intermediate → core → marts → ops → semantic
        ↓
