@@ -1,10 +1,13 @@
-import time
-import requests
+import api_client
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from pyspark.sql.types import (
-    StructType, StructField, StringType,
-    IntegerType, DateType, TimestampType
+    StructType,
+    StructField,
+    StringType,
+    IntegerType,
+    DateType,
+    TimestampType,
 )
 
 API_KEY = dbutils.secrets.get(scope="football", key="api_key")  # noqa: F821
@@ -14,7 +17,6 @@ HEADERS = {"x-apisports-key": API_KEY}
 ENDPOINT = "coachs"
 
 spark = SparkSession.builder.getOrCreate()
-requests_made = 0
 
 
 def is_transfer_window() -> bool:
@@ -26,7 +28,9 @@ def should_refetch_coach(team_id: int) -> bool:
     last_ingested = get_last_ingested_at(ENDPOINT, team_id)
     if not last_ingested:
         return True
-    days_since = (datetime.now(tz=timezone.utc) - last_ingested.replace(tzinfo=timezone.utc)).days
+    days_since = (
+        datetime.now(tz=timezone.utc) - last_ingested.replace(tzinfo=timezone.utc)
+    ).days
     if is_transfer_window():
         return days_since >= 7
     else:
@@ -34,18 +38,7 @@ def should_refetch_coach(team_id: int) -> bool:
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
-    global requests_made
-    url = f"{API_BASE_URL}/{endpoint}"
-    response = requests.get(url, headers=HEADERS, params=params)
-    response.raise_for_status()
-    requests_made += 1
-    remaining = response.headers.get("x-ratelimit-requests-remaining")
-    limit = response.headers.get("x-ratelimit-requests-limit")
-    print(f"  API requests remaining: {remaining}/{limit}")
-    if remaining and int(remaining) < 100:
-        raise Exception("⚠️ API request limit almost reached — stopping!")
-    time.sleep(0.5)
-    return response.json()
+    return api_client.fetch_from_api(endpoint, params, headers=HEADERS)
 
 
 def get_team_ids() -> list:
@@ -86,11 +79,7 @@ def flatten_coach(record: dict) -> dict:
     }
 
 
-def flatten_coach_career(
-    coach_id: int,
-    coach_name: str,
-    career: dict
-) -> dict:
+def flatten_coach_career(coach_id: int, coach_name: str, career: dict) -> dict:
     team = career.get("team", {})
     start_date_str = career.get("start")
     end_date_str = career.get("end")
@@ -142,9 +131,11 @@ def get_last_ingested_at(endpoint: str, entity_id: int = None):
 
 
 def update_metadata(
-    endpoint: str, rows_inserted: int,
-    status: str, entity_id: int = None,
-    started_at: datetime = None
+    endpoint: str,
+    rows_inserted: int,
+    status: str,
+    entity_id: int = None,
+    started_at: datetime = None,
 ):
     now = datetime.now(tz=timezone.utc)
     entity_val = str(entity_id) if entity_id else "NULL"
@@ -155,7 +146,7 @@ def update_metadata(
          requests_used, status, created_at, started_at)
         VALUES (
             '{endpoint}', {entity_val}, '{now.isoformat()}',
-            {rows_inserted}, {requests_made}, '{status}',
+            {rows_inserted}, {api_client.get_requests_made()}, '{status}',
             '{now.isoformat()}', {started_val}
         )
     """)
@@ -167,23 +158,25 @@ def load_coaches(coaches: list) -> int:
     valid_coaches = [c for c in coaches if c["coach_id"]]
     if not valid_coaches:
         return 0
-    schema = StructType([
-        StructField("coach_id", IntegerType(), True),
-        StructField("coach_name", StringType(), True),
-        StructField("firstname", StringType(), True),
-        StructField("lastname", StringType(), True),
-        StructField("age", IntegerType(), True),
-        StructField("birth_date", DateType(), True),
-        StructField("birth_place", StringType(), True),
-        StructField("birth_country", StringType(), True),
-        StructField("nationality", StringType(), True),
-        StructField("height", StringType(), True),
-        StructField("weight", StringType(), True),
-        StructField("photo_url", StringType(), True),
-        StructField("current_team_id", IntegerType(), True),
-        StructField("current_team_name", StringType(), True),
-        StructField("ingested_at", TimestampType(), True),
-    ])
+    schema = StructType(
+        [
+            StructField("coach_id", IntegerType(), True),
+            StructField("coach_name", StringType(), True),
+            StructField("firstname", StringType(), True),
+            StructField("lastname", StringType(), True),
+            StructField("age", IntegerType(), True),
+            StructField("birth_date", DateType(), True),
+            StructField("birth_place", StringType(), True),
+            StructField("birth_country", StringType(), True),
+            StructField("nationality", StringType(), True),
+            StructField("height", StringType(), True),
+            StructField("weight", StringType(), True),
+            StructField("photo_url", StringType(), True),
+            StructField("current_team_id", IntegerType(), True),
+            StructField("current_team_name", StringType(), True),
+            StructField("ingested_at", TimestampType(), True),
+        ]
+    )
     df = spark.createDataFrame(valid_coaches, schema=schema)
     df.createOrReplaceTempView("coaches_staging")
     spark.sql("""
@@ -207,15 +200,17 @@ def load_coach_careers(careers: list, coach_ids: list) -> int:
         DELETE FROM efua_data_platform.football_raw.raw_coach_careers
         WHERE coach_id IN ({ids_str})
     """)
-    schema = StructType([
-        StructField("coach_id", IntegerType(), True),
-        StructField("coach_name", StringType(), True),
-        StructField("team_id", IntegerType(), True),
-        StructField("team_name", StringType(), True),
-        StructField("start_date", DateType(), True),
-        StructField("end_date", DateType(), True),
-        StructField("ingested_at", TimestampType(), True),
-    ])
+    schema = StructType(
+        [
+            StructField("coach_id", IntegerType(), True),
+            StructField("coach_name", StringType(), True),
+            StructField("team_id", IntegerType(), True),
+            StructField("team_name", StringType(), True),
+            StructField("start_date", DateType(), True),
+            StructField("end_date", DateType(), True),
+            StructField("ingested_at", TimestampType(), True),
+        ]
+    )
     df = spark.createDataFrame(careers, schema=schema)
     df.write.mode("append").saveAsTable(
         "efua_data_platform.football_raw.raw_coach_careers"
@@ -231,13 +226,12 @@ def log_skipped_team(team_id: int):
          requests_used, status, created_at)
         VALUES (
             '{ENDPOINT}', {team_id}, '{now.isoformat()}',
-            0, {requests_made}, 'skipped', '{now.isoformat()}'
+            0, {api_client.get_requests_made()}, 'skipped', '{now.isoformat()}'
         )
     """)
 
 
 def main():
-    global requests_made
     print("👔 Fetching coaches...")
 
     team_ids = get_team_ids()
@@ -249,7 +243,7 @@ def main():
     started_at = None
     try:
         for team_id in team_ids:
-            requests_made = 0
+            api_client.reset_requests_made()
 
             if not should_refetch_coach(team_id):
                 print(f"  Team {team_id} recently checked — skipping")
@@ -257,17 +251,11 @@ def main():
 
             started_at = datetime.now(tz=timezone.utc)
             current_entity_id = team_id
-            response = fetch_from_api(
-                ENDPOINT,
-                params={"team": team_id}
-            )
+            response = fetch_from_api(ENDPOINT, params={"team": team_id})
             records = response.get("response", [])
 
             if not records:
-                print(
-                    f"  No coaches for team {team_id} "
-                    f"— logging as skipped"
-                )
+                print(f"  No coaches for team {team_id} " f"— logging as skipped")
                 log_skipped_team(team_id)
                 continue
 
@@ -279,33 +267,30 @@ def main():
                 coach_id = record.get("id")
                 coach_name = record.get("name")
                 for career in record.get("career", []):
-                    careers.append(
-                        flatten_coach_career(coach_id, coach_name, career)
-                    )
+                    careers.append(flatten_coach_career(coach_id, coach_name, career))
 
             coach_ids = [c["coach_id"] for c in coaches if c["coach_id"]]
             coach_rows = load_coaches(coaches)
             career_rows = load_coach_careers(careers, coach_ids)
 
-            print(f"  Team {team_id}: ✅ {coach_rows} coaches "
-                  f"{career_rows} career records")
+            print(
+                f"  Team {team_id}: ✅ {coach_rows} coaches "
+                f"{career_rows} career records"
+            )
 
             update_metadata(
                 ENDPOINT,
                 coach_rows + career_rows,
                 "success",
                 team_id,
-                started_at=started_at
+                started_at=started_at,
             )
 
         print("\n🎉 Coaches ingestion complete!")
 
     except Exception as e:
         if current_entity_id:
-            update_metadata(
-                ENDPOINT, 0, "failed",
-                current_entity_id, started_at
-            )
+            update_metadata(ENDPOINT, 0, "failed", current_entity_id, started_at)
         print(f"❌ Error: {e}")
         raise
 

@@ -68,7 +68,7 @@ Both ingestion and dbt transformations run as tasks within the same Databricks J
 ```text
 Databricks Jobs DAG:
 
-  Ingest tasks (7 leaf tasks)
+  Ingest tasks (12 tasks, serialized — one at a time)
        ↓
   dbt: staging → intermediate → core → marts → ops → semantic
        ↓
@@ -77,7 +77,10 @@ Databricks Jobs DAG:
   dbt snapshot
 ```
 
-Ingestion tasks run in parallel where there are no dependencies. dbt tasks run sequentially in layer order. Failures in any ingest task surface before dbt begins.
+Ingestion tasks run **one at a time** to stay under the API-Football Ultra
+per-minute cap (450 req/min). All tasks share the same API key, so parallel
+ingest tasks can burst past that limit even when daily quota (75k) is fine.
+Job definition: `scripts/ingestion/databricks_job.json`.
 
 For the decision rationale behind Databricks Jobs over Airflow at this stage, see [ADR 007](adr/007-databricks-jobs-over-airflow.md).
 

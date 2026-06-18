@@ -1,6 +1,5 @@
-import time
 import threading
-import requests
+import api_client
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
@@ -18,13 +17,11 @@ API_BASE_URL = "https://v3.football.api-sports.io"
 HEADERS = {"x-apisports-key": API_KEY}
 ENDPOINT = "players/squads"
 
-API_CONCURRENCY = 3
+API_CONCURRENCY = 1
 FLUSH_EVERY = 100
 
 spark = SparkSession.builder.getOrCreate()
 
-requests_made = 0
-requests_lock = threading.Lock()
 api_semaphore = threading.Semaphore(API_CONCURRENCY)
 
 
@@ -81,20 +78,9 @@ def get_existing_squad_combos() -> set:
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
-    global requests_made
-    url = f"{API_BASE_URL}/{endpoint}"
-    with api_semaphore:
-        response = requests.get(url, headers=HEADERS, params=params)
-        response.raise_for_status()
-        with requests_lock:
-            requests_made += 1
-        remaining = response.headers.get("x-ratelimit-requests-remaining")
-        limit = response.headers.get("x-ratelimit-requests-limit")
-        print(f"  API requests remaining: {remaining}/{limit}")
-        if remaining and int(remaining) < 100:
-            raise Exception("⚠️ API request limit almost reached — stopping!")
-        time.sleep(0.5)
-    return response.json()
+    return api_client.fetch_from_api(
+        endpoint, params, headers=HEADERS, semaphore=api_semaphore
+    )
 
 
 def flatten_squad_player(team_id: int, team_name: str, player: dict) -> dict:

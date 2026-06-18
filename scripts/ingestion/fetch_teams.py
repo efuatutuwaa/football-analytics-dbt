@@ -1,10 +1,13 @@
-import time
-import requests
+import api_client
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from pyspark.sql.types import (
-    StructType, StructField, StringType,
-    IntegerType, BooleanType, TimestampType
+    StructType,
+    StructField,
+    StringType,
+    IntegerType,
+    BooleanType,
+    TimestampType,
 )
 
 from constants import LEAGUE_IDS, SEASONS
@@ -16,30 +19,20 @@ HEADERS = {"x-apisports-key": API_KEY}
 ENDPOINT = "teams"
 
 spark = SparkSession.builder.getOrCreate()
-requests_made = 0
 
 
 def should_refetch(endpoint: str, league_id: int, season: int) -> bool:
     last_ingested = get_last_ingested_at(f"{endpoint}_{season}", league_id)
     if not last_ingested:
         return True
-    days_since = (datetime.now(tz=timezone.utc) - last_ingested.replace(tzinfo=timezone.utc)).days
+    days_since = (
+        datetime.now(tz=timezone.utc) - last_ingested.replace(tzinfo=timezone.utc)
+    ).days
     return days_since >= 365
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
-    global requests_made
-    url = f"{API_BASE_URL}/{endpoint}"
-    response = requests.get(url, headers=HEADERS, params=params)
-    response.raise_for_status()
-    requests_made += 1
-    remaining = response.headers.get("x-ratelimit-requests-remaining")
-    limit = response.headers.get("x-ratelimit-requests-limit")
-    print(f"  API requests remaining: {remaining}/{limit}")
-    if remaining and int(remaining) < 100:
-        raise Exception("⚠️ API request limit almost reached — stopping!")
-    time.sleep(0.5)
-    return response.json()
+    return api_client.fetch_from_api(endpoint, params, headers=HEADERS)
 
 
 def flatten_team(record: dict) -> dict:
@@ -70,11 +63,7 @@ def flatten_venue(record: dict) -> dict:
     }
 
 
-def flatten_team_season(
-    team_id: int,
-    league_id: int,
-    season: int
-) -> dict:
+def flatten_team_season(team_id: int, league_id: int, season: int) -> dict:
     return {
         "team_id": team_id,
         "league_id": league_id,
@@ -108,9 +97,11 @@ def get_last_ingested_at(endpoint: str, entity_id: int = None):
 
 
 def update_metadata(
-    endpoint: str, rows_inserted: int,
-    status: str, entity_id: int = None,
-    started_at: datetime = None
+    endpoint: str,
+    rows_inserted: int,
+    status: str,
+    entity_id: int = None,
+    started_at: datetime = None,
 ):
     now = datetime.now(tz=timezone.utc)
     entity_val = str(entity_id) if entity_id else "NULL"
@@ -121,7 +112,7 @@ def update_metadata(
          requests_used, status, created_at, started_at)
         VALUES (
             '{endpoint}', {entity_val}, '{now.isoformat()}',
-            {rows_inserted}, {requests_made}, '{status}',
+            {rows_inserted}, {api_client.get_requests_made()}, '{status}',
             '{now.isoformat()}', {started_val}
         )
     """)
@@ -131,31 +122,29 @@ def load_teams(teams: list) -> int:
     if not teams:
         return 0
     existing_ids = {
-        row[0] for row in spark.sql("""
+        row[0]
+        for row in spark.sql("""
             SELECT team_id
             FROM efua_data_platform.football_raw.raw_teams
         """).collect()
     }
-    new_teams = [
-        t for t in teams
-        if t["team_id"] and t["team_id"] not in existing_ids
-    ]
+    new_teams = [t for t in teams if t["team_id"] and t["team_id"] not in existing_ids]
     if not new_teams:
         return 0
-    schema = StructType([
-        StructField("team_id", IntegerType(), True),
-        StructField("team_name", StringType(), True),
-        StructField("team_code", StringType(), True),
-        StructField("team_country", StringType(), True),
-        StructField("founded_year", IntegerType(), True),
-        StructField("is_national_team", BooleanType(), True),
-        StructField("team_logo_url", StringType(), True),
-        StructField("ingested_at", TimestampType(), True),
-    ])
-    df = spark.createDataFrame(new_teams, schema=schema)
-    df.write.mode("append").saveAsTable(
-        "efua_data_platform.football_raw.raw_teams"
+    schema = StructType(
+        [
+            StructField("team_id", IntegerType(), True),
+            StructField("team_name", StringType(), True),
+            StructField("team_code", StringType(), True),
+            StructField("team_country", StringType(), True),
+            StructField("founded_year", IntegerType(), True),
+            StructField("is_national_team", BooleanType(), True),
+            StructField("team_logo_url", StringType(), True),
+            StructField("ingested_at", TimestampType(), True),
+        ]
     )
+    df = spark.createDataFrame(new_teams, schema=schema)
+    df.write.mode("append").saveAsTable("efua_data_platform.football_raw.raw_teams")
     return len(new_teams)
 
 
@@ -163,31 +152,31 @@ def load_venues(venues: list) -> int:
     if not venues:
         return 0
     existing_ids = {
-        row[0] for row in spark.sql("""
+        row[0]
+        for row in spark.sql("""
             SELECT venue_id
             FROM efua_data_platform.football_raw.raw_venues
         """).collect()
     }
     new_venues = [
-        v for v in venues
-        if v["venue_id"] and v["venue_id"] not in existing_ids
+        v for v in venues if v["venue_id"] and v["venue_id"] not in existing_ids
     ]
     if not new_venues:
         return 0
-    schema = StructType([
-        StructField("venue_id", IntegerType(), True),
-        StructField("venue_name", StringType(), True),
-        StructField("venue_address", StringType(), True),
-        StructField("venue_city", StringType(), True),
-        StructField("venue_capacity", IntegerType(), True),
-        StructField("venue_surface", StringType(), True),
-        StructField("venue_image_url", StringType(), True),
-        StructField("ingested_at", TimestampType(), True),
-    ])
-    df = spark.createDataFrame(new_venues, schema=schema)
-    df.write.mode("append").saveAsTable(
-        "efua_data_platform.football_raw.raw_venues"
+    schema = StructType(
+        [
+            StructField("venue_id", IntegerType(), True),
+            StructField("venue_name", StringType(), True),
+            StructField("venue_address", StringType(), True),
+            StructField("venue_city", StringType(), True),
+            StructField("venue_capacity", IntegerType(), True),
+            StructField("venue_surface", StringType(), True),
+            StructField("venue_image_url", StringType(), True),
+            StructField("ingested_at", TimestampType(), True),
+        ]
     )
+    df = spark.createDataFrame(new_venues, schema=schema)
+    df.write.mode("append").saveAsTable("efua_data_platform.football_raw.raw_venues")
     return len(new_venues)
 
 
@@ -195,24 +184,27 @@ def load_team_seasons(team_seasons: list) -> int:
     if not team_seasons:
         return 0
     existing_combos = {
-        (row[0], row[1], row[2]) for row in spark.sql("""
+        (row[0], row[1], row[2])
+        for row in spark.sql("""
             SELECT team_id, league_id, season_year
             FROM efua_data_platform.football_raw.raw_team_seasons
         """).collect()
     }
     new_seasons = [
-        s for s in team_seasons
-        if (s["team_id"], s["league_id"], s["season_year"])
-        not in existing_combos
+        s
+        for s in team_seasons
+        if (s["team_id"], s["league_id"], s["season_year"]) not in existing_combos
     ]
     if not new_seasons:
         return 0
-    schema = StructType([
-        StructField("team_id", IntegerType(), True),
-        StructField("league_id", IntegerType(), True),
-        StructField("season_year", IntegerType(), True),
-        StructField("ingested_at", TimestampType(), True),
-    ])
+    schema = StructType(
+        [
+            StructField("team_id", IntegerType(), True),
+            StructField("league_id", IntegerType(), True),
+            StructField("season_year", IntegerType(), True),
+            StructField("ingested_at", TimestampType(), True),
+        ]
+    )
     df = spark.createDataFrame(new_seasons, schema=schema)
     df.write.mode("append").saveAsTable(
         "efua_data_platform.football_raw.raw_team_seasons"
@@ -221,7 +213,6 @@ def load_team_seasons(team_seasons: list) -> int:
 
 
 def main():
-    global requests_made
     print("⚽ Fetching teams...")
     current_endpoint = None
     current_entity_id = None
@@ -230,7 +221,7 @@ def main():
     try:
         for league_id in LEAGUE_IDS:
             for season in SEASONS:
-                requests_made = 0
+                api_client.reset_requests_made()
 
                 if not should_refetch(ENDPOINT, league_id, season):
                     print(
@@ -243,12 +234,10 @@ def main():
                 current_endpoint = f"{ENDPOINT}_{season}"
                 current_entity_id = league_id
                 print(
-                    f"\n  Fetching teams for league "
-                    f"{league_id} season {season}..."
+                    f"\n  Fetching teams for league " f"{league_id} season {season}..."
                 )
                 response = fetch_from_api(
-                    ENDPOINT,
-                    params={"league": league_id, "season": season}
+                    ENDPOINT, params={"league": league_id, "season": season}
                 )
                 records = response.get("response", [])
 
@@ -259,9 +248,7 @@ def main():
                 teams = [flatten_team(r) for r in records]
                 venues = [flatten_venue(r) for r in records]
                 team_seasons = [
-                    flatten_team_season(
-                        r.get("team", {}).get("id"), league_id, season
-                    )
+                    flatten_team_season(r.get("team", {}).get("id"), league_id, season)
                     for r in records
                 ]
 
@@ -278,7 +265,7 @@ def main():
                     team_rows + venue_rows + season_rows,
                     "success",
                     league_id,
-                    started_at=started_at
+                    started_at=started_at,
                 )
 
         print("\n🎉 Teams ingestion complete!")
@@ -286,8 +273,7 @@ def main():
     except Exception as e:
         if current_endpoint:
             update_metadata(
-                current_endpoint, 0, "failed",
-                current_entity_id, started_at
+                current_endpoint, 0, "failed", current_entity_id, started_at
             )
         print(f"❌ Error: {e}")
         raise

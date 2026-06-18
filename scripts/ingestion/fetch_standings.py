@@ -1,5 +1,4 @@
-import time
-import requests
+import api_client
 from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from pyspark.sql.types import (
@@ -18,7 +17,6 @@ HEADERS = {"x-apisports-key": API_KEY}
 ENDPOINT = "standings"
 
 spark = SparkSession.builder.getOrCreate()
-requests_made = 0
 
 STANDING_SCHEMA = StructType(
     [
@@ -59,18 +57,7 @@ STANDING_SCHEMA = StructType(
 
 
 def fetch_from_api(endpoint: str, params: dict = {}) -> dict:
-    global requests_made
-    url = f"{API_BASE_URL}/{endpoint}"
-    response = requests.get(url, headers=HEADERS, params=params)
-    response.raise_for_status()
-    requests_made += 1
-    remaining = response.headers.get("x-ratelimit-requests-remaining")
-    limit = response.headers.get("x-ratelimit-requests-limit")
-    print(f"  API requests remaining: {remaining}/{limit}")
-    if remaining and int(remaining) < 100:
-        raise Exception("⚠️ API request limit almost reached — stopping!")
-    time.sleep(0.5)
-    return response.json()
+    return api_client.fetch_from_api(endpoint, params, headers=HEADERS)
 
 
 def _parse_ts(val: str):
@@ -181,7 +168,7 @@ def update_metadata(
          requests_used, status, created_at, started_at)
         VALUES (
             '{endpoint}', {entity_val}, '{now.isoformat()}',
-            {rows_inserted}, {requests_made}, '{status}',
+            {rows_inserted}, {api_client.get_requests_made()}, '{status}',
             '{now.isoformat()}', {started_val}
         )
     """)
@@ -210,7 +197,6 @@ def load_standings(standings: list) -> int:
 
 
 def main():
-    global requests_made
     print("🏆 Fetching standings...")
     current_endpoint = None
     current_entity_id = None
@@ -218,7 +204,7 @@ def main():
     try:
         for league_id in LEAGUE_IDS:
             for season in SEASONS:
-                requests_made = 0
+                api_client.reset_requests_made()
                 if not should_refetch_standings(league_id, season):
                     print(
                         f"  League {league_id} season {season} "
